@@ -25,6 +25,7 @@ import ActionPrice from "./components/ActionPrice.vue"
 import GameInfo from "./components/GameInfo.vue"
 import ManualPriceCard from "./components/ManualPriceCard.vue"
 import PriceStatusSelect from "./components/PriceStatusSelect.vue"
+import StrategyCompare from "./components/StrategyCompare.vue"
 
 // #region 查
 const favoriteStore = useFavoriteStore()
@@ -753,6 +754,10 @@ const onPriceStatusChange = usePriceStatus("dashboard-price-status")
             </div>
           </template>
         </el-card>
+      </el-col>
+
+      <el-col :xs="24" :sm="24" :md="24" :lg="24" :xl="16">
+        <StrategyCompare :data="leaderboardData" />
       </el-col>
 
       <el-col :xs="24" :sm="24" :md="24" :lg="24" :xl="8">
