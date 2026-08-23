@@ -1,0 +1,1 @@
+import{d as t,av as r,aw as a,e as o,h as s}from"./index-DCoSzyko.js";const m=t({__name:"index",setup(n){const e=r();return a().replace({path:`/${e.params.path}`,query:e.query}),(c,p)=>(o(),s("div"))}});export{m as default};
