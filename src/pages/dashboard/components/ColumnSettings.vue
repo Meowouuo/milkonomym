@@ -69,7 +69,8 @@ function moveDown(i: number) {
     <div class="color-gray-500 font-size-12px mb-1">
       {{ t('勾选显示，按住 ⠿ 拖动排序') }}
     </div>
-    <div class="flex flex-col">
+    <!-- 弹窗内容独立滚动：超高时内部自己滚，不牵动背后页面（overscroll-behavior 防滚动穿透） -->
+    <div class="flex flex-col col-set-scroll">
       <div
         v-for="(col, i) in orderedColumns"
         :key="col.key"
@@ -93,7 +94,17 @@ function moveDown(i: number) {
   </el-popover>
 </template>
 
-<style lang="scss" scoped>
+<style lang="scss">
+/* 弹窗内容被 teleport 到 body，scoped 样式作用不到，必须全局 */
+.col-set-scroll {
+  /* 随视口自适应：弹窗（从 ~368px 处的齿轮向下弹出）永不超出屏幕底部；
+     屏幕越矮上限越小，列表必然内部滚动；clamp 兜底极矮窗口 */
+  max-height: clamp(140px, calc(100vh - 470px), 420px);
+  overflow-y: scroll;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
 .col-set-row {
   display: flex;
   align-items: center;
