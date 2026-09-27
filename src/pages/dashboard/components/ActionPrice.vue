@@ -4,7 +4,7 @@ import ItemIcon from "@@/components/ItemIcon/index.vue"
 import * as Format from "@@/utils/format"
 import { getItemDetailOf, getPriceOf } from "@/common/apis/game"
 import { getManualPriceOf, setPriceApi } from "@/common/apis/price"
-import { COIN_HRID } from "@/pinia/stores/game"
+import { COIN_HRID, PriceStatus } from "@/pinia/stores/game"
 
 const props = defineProps<{
   modelValue: boolean
@@ -54,7 +54,10 @@ function getPriceConfigList(row: Calculator, type: "product" | "ingredient") {
     const priceConfig = row[`${type}PriceConfigList`][i]
     const hasManualPrice = getManualPriceOf(item.hrid, item.level)?.[type === "ingredient" ? "ask" : "bid"]?.manual
     const manualPrice = getManualPriceOf(item.hrid, item.level)?.[type === "ingredient" ? "ask" : "bid"]?.manualPrice
-    const price = priceConfig?.immutable ? priceConfig.price! : hasManualPrice ? manualPrice! : item.marketPrice
+    // 自定义默认值取原始市场价（不受左左/右右档位换算影响），手填过则保留手填值
+    const raw = getPriceOf(item.hrid, item.level, PriceStatus.MARKET, PriceStatus.MARKET)
+    const marketFallback = type === "ingredient" ? raw.ask : raw.bid
+    const price = priceConfig?.immutable ? priceConfig.price! : hasManualPrice ? manualPrice! : marketFallback
     return {
       hrid: item.hrid,
       level: item.level,
@@ -113,7 +116,7 @@ const { t } = useI18n()
                   {{ Format.price(row.price) }}
                 </div>
                 <div v-else>
-                  {{ Format.price(getPriceOf(row.hrid, row.level).ask) }} / {{ Format.price(getPriceOf(row.hrid, row.level).bid) }}
+                  {{ Format.price(getPriceOf(row.hrid, row.level, PriceStatus.MARKET, PriceStatus.MARKET).ask) }} / {{ Format.price(getPriceOf(row.hrid, row.level, PriceStatus.MARKET, PriceStatus.MARKET).bid) }}
                 </div>
               </template>
             </el-table-column>
@@ -147,7 +150,7 @@ const { t } = useI18n()
                   {{ Format.price(row.price) }}
                 </div>
                 <div v-else>
-                  {{ Format.price(getPriceOf(row.hrid, row.level).ask) }} / {{ Format.price(getPriceOf(row.hrid, row.level).bid) }}
+                  {{ Format.price(getPriceOf(row.hrid, row.level, PriceStatus.MARKET, PriceStatus.MARKET).ask) }} / {{ Format.price(getPriceOf(row.hrid, row.level, PriceStatus.MARKET, PriceStatus.MARKET).bid) }}
                 </div>
               </template>
             </el-table-column>

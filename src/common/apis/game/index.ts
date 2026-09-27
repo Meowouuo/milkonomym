@@ -78,7 +78,7 @@ const SPECIAL_PRICE: Record<string, () => MarketItemPrice> = {
 }
 
 function convertPriceOfStatus(price: MarketItemPrice, buyStatus: PriceStatus, sellStatus: PriceStatus) {
-  function convert(status: PriceStatus) {
+  function convert(status: PriceStatus, side: "ask" | "bid") {
     const result = { price: -1 }
     switch (status) {
       case PriceStatus.ASK:
@@ -99,13 +99,17 @@ function convertPriceOfStatus(price: MarketItemPrice, buyStatus: PriceStatus, se
           result.price = priceStepOf(result.price, true)
         }
         break
+      case PriceStatus.MARKET:
+        // 市场价格：不做档位换算，按侧直取原始挂单价
+        result.price = side === "ask" ? price.ask : price.bid
+        break
     }
     return result
   }
 
   return {
-    ask: convert(buyStatus).price,
-    bid: convert(sellStatus).price,
+    ask: convert(buyStatus, "ask").price,
+    bid: convert(sellStatus, "bid").price,
     // avg/vol are not affected by buy/sell status; keep raw values
     avg: price.avg,
     vol: price.vol

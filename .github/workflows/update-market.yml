@@ -1,7 +1,10 @@
 name: Update Market Data
 # 每小时抓取官方 marketplace.json 写入 gh-pages 的 data/market.json，
 # 作为前端官方直连失败（国内被墙/DNS劫持）时的同源回退数据源（见 src/pinia/stores/game.ts fetchData）；
-# 同时把每小时成交量快照追加到 data/vol-history.json（保留最近 25 条，供多窗口成交量求和）
+# 同时把每小时成交量快照追加到 data/vol-history.json（保留最近 25 条，供多窗口成交量求和）；
+# 每日追加一份价格快照到 data/price-history.json（保留 14 天），
+# 并重算 data/market-median.json（近 14 天 ask/bid 滚动中位数，样本≥3 才入表，
+# 供前端 priceGuard 拦截薄市场天价挂单，见 src/common/apis/game/priceGuard.ts）
 on:
   schedule:
     - cron: "23 * * * *"
@@ -66,11 +69,70 @@ jobs:
           print(f"vol-history entries: {len(hist)}, latest ts: {ts}")
           EOF
 
+      - name: Append daily price snapshot and recompute rolling median
+        shell: bash
+        run: |
+          python3 - <<'EOF'
+          import json, os, statistics
+          from datetime import datetime, timezone, timedelta
+
+          CST = timezone(timedelta(hours=8))
+          new = json.load(open('data/market.json'))
+          ts = new['timestamp']
+          day = datetime.fromtimestamp(ts, CST).strftime('%Y%m%d')
+
+          # 1) 每日一份 ask/bid 快照（按东八区日去重，同日只记第一次）
+          snap = {}
+          for hrid, levels in (new.get('marketData') or {}).items():
+              if not levels:
+                  continue
+              for level, q in levels.items():
+                  if not q:
+                      continue
+                  entry = {}
+                  for k in ('a', 'b'):
+                      v = q.get(k)
+                      if isinstance(v, (int, float)) and v > 0:
+                          entry[k] = v
+                  if entry:
+                      snap[f"{hrid}@{level}"] = entry
+
+          hist = []
+          if os.path.exists('data/price-history.json'):
+              try:
+                  hist = json.load(open('data/price-history.json'))
+              except Exception:
+                  hist = []
+          if not (hist and hist[-1].get('day') == day):
+              hist.append({'day': day, 'ts': ts, 'p': snap})
+          hist = hist[-14:]
+          json.dump(hist, open('data/price-history.json', 'w'), ensure_ascii=False, separators=(',', ':'))
+
+          # 2) 近 14 天滚动中位数；某侧样本 >= 3 才写入，宁缺毋滥
+          samples = {}
+          for e in hist:
+              for key, q in (e.get('p') or {}).items():
+                  for side in ('a', 'b'):
+                      v = q.get(side)
+                      if isinstance(v, (int, float)) and v > 0:
+                          samples.setdefault(key, {'a': [], 'b': []})[side].append(v)
+          m = {}
+          for key, d in samples.items():
+              out = {}
+              for side in ('a', 'b'):
+                  if len(d[side]) >= 3:
+                      out[side] = statistics.median(d[side])
+              if out:
+                  m[key] = out
+          json.dump({'ts': ts, 'm': m}, open('data/market-median.json', 'w'), ensure_ascii=False, separators=(',', ':'))
+          print(f"price-history days: {len(hist)}, median keys: {len(m)}")
+          EOF
+
       - name: Commit and push if changed
         shell: bash
         run: |
           # 先 add 再用 --cached 检测，避免 untracked 文件（如 vol-history.json 首次生成）被漏掉
-          git add data/market.json data/vol-history.json
+          git add data/market.json data/vol-history.json data/price-history.json data/market-median.json
           if git diff --cached --quiet; then
             echo "No market data changes"
             exit 0

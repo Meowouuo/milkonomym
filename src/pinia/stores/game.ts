@@ -92,14 +92,17 @@ export enum PriceStatus {
   // 比左价低一档
   ASK_LOW = "ASK_LOW",
   // 比右价高一档
-  BID_HIGH = "BID_HIGH"
+  BID_HIGH = "BID_HIGH",
+  // 市场价格：不做档位换算的原始参考价（ask 侧取左价原值、bid 侧取右价原值）
+  MARKET = "MARKET"
 }
 
 export const PRICE_STATUS_LIST = [
   { value: PriceStatus.ASK, label: getTrans("左价") },
   { value: PriceStatus.ASK_LOW, label: `${getTrans("左价")}-` },
   { value: PriceStatus.BID, label: getTrans("右价") },
-  { value: PriceStatus.BID_HIGH, label: `${getTrans("右价")}+` }
+  { value: PriceStatus.BID_HIGH, label: `${getTrans("右价")}+` },
+  { value: PriceStatus.MARKET, label: getTrans("市场价格") }
 ]
 
 export const useGameStore = defineStore("game", {
@@ -111,6 +114,8 @@ export const useGameStore = defineStore("game", {
     manualchemyCache: {} as { [key: string]: Calculator[] },
     superAlchemyCache: {} as { [key: string]: any[] },
     volHistory: [] as { ts: number, v: Record<string, number> }[],
+    /** 近 14 天 ask/bid 滚动中位数（update-market workflow 每日生成），key = "hrid@level" */
+    priceMedian: null as { ts: number, m: Record<string, { a?: number, b?: number }> } | null,
     realtimeData: null as { ts: number, data: Record<string, { a: number, b: number, t: number }> } | null,
     /** 社区Buff实时数据（搭 realtime.json 顺风车下发），hrid → 等级 */
     communityBuffsLive: null as { ts: number, buffs: Record<string, number> } | null,
@@ -292,6 +297,17 @@ export const useGameStore = defineStore("game", {
           }
         })
         .catch(() => { /* 快照尚未生成，忽略 */ })
+
+      // 近 14 天价格中位数参考（update-market workflow 每日生成；文件不存在时静默跳过）
+      fetch(`${url}data/market-median.json`, { cache: "no-store" })
+        .then(async (res) => {
+          if (!res.ok) return
+          const med = await res.json()
+          if (med && typeof med.ts === "number" && med.m && typeof med.m === "object") {
+            this.priceMedian = med
+          }
+        })
+        .catch(() => { /* 尚未生成，忽略 */ })
     },
 
     savePriceStatus() {
