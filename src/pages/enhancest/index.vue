@@ -10,6 +10,7 @@ import { EnhanceCalculator } from "@/calculator/enhance"
 import { ManufactureCalculator } from "@/calculator/manufacture"
 import { getItemDetailOf, getMarketDataApi, getPriceOf, priceStepOf } from "@/common/apis/game"
 import { getEquipmentList } from "@/common/apis/player"
+import { NO_TAX_FACTOR, SELL_TAX_FACTOR } from "@/common/constants/market"
 import { useEnhancerStore } from "@/pinia/stores/enhancer"
 import { COIN_HRID } from "@/pinia/stores/game"
 import { usePlayerStore } from "@/pinia/stores/player"
@@ -104,15 +105,15 @@ interface Item {
   protection?: Ingredient
 }
 
-// Market tax rate: only 0% / 5%.
-// Internally persist `ignoreTax` (0% => true, 5% => false).
+// Market tax rate: only 0% / 4%.
+// Internally persist `ignoreTax` (0% => true, 4% => false).
 const marketTaxRate = computed<number>({
-  get: () => (enhancerStore.advancedConfig.ignoreTax ? 0 : 5),
+  get: () => (enhancerStore.advancedConfig.ignoreTax ? 0 : 4),
   set: (value: number) => {
     enhancerStore.advancedConfig.ignoreTax = value === 0
   }
 })
-const sellTaxFactorComputed = computed(() => marketTaxRate.value === 0 ? 1 : 0.95)
+const sellTaxFactorComputed = computed(() => marketTaxRate.value === 0 ? NO_TAX_FACTOR : SELL_TAX_FACTOR)
 
 function onSelect(item: ItemDetail) {
   if (!item) {
@@ -238,7 +239,7 @@ const results = computed(() => {
   console.time("[超级强化] results")
   const result = []
   const ignoreTax = !!enhancerStore.advancedConfig.ignoreTax
-  const sellTaxFactor = ignoreTax ? 1 : 0.95
+  const sellTaxFactor = ignoreTax ? NO_TAX_FACTOR : SELL_TAX_FACTOR
   const enhanceLevel = enhancerStore.advancedConfig.enhanceLevel ?? defaultConfig.enhanceLevel
   let protectLevel = Math.max(2, (enhancerStore.advancedConfig.escapeLevel ?? defaultConfig.escapeLevel) + 1)
   for (; protectLevel <= enhanceLevel; ++protectLevel) {
@@ -267,15 +268,15 @@ const results = computed(() => {
             ? currentItem.value.price
             : currentItemOriginPrice.value
     const totalCostNoHourly = matCost + curentItemPrice
-    // 补税在下方 guidePrice 处 ÷sellTaxFactor 统一完成（=总成本/95%，见注释公式）；
-    // 这里曾多乘一次 (1+税率)，导致指导价整体偏高 ~5%
+    // 补税在下方 guidePrice 处 ÷sellTaxFactor 统一完成（=总成本/96%，见注释公式）；
+    // 这里曾多乘一次 (1+税率)，导致指导价整体偏高 ~4%
     const totalCost = totalCostNoHourly + (enhancerStore.advancedConfig.hourlyRate ?? defaultConfig.hourlyRate) * (actions / calc.actionsPH)
 
     /**
      * tag = 0时，利用工时费计算指导价
         总成本 = 收入
-        材料费用 + 总工时费 + 1个初始物品成本 = (成功率*指导价 + 逃逸率*逃逸价格或白板价格) * 95%
-        因此 指导价 = (总成本 / 95% - 逃逸价格*逃逸率) / 成功率
+        材料费用 + 总工时费 + 1个初始物品成本 = (成功率*指导价 + 逃逸率*逃逸价格或白板价格) * 96%
+        因此 指导价 = (总成本 / 96% - 逃逸价格*逃逸率) / 成功率
      */
 
     const escapePrice = calc.realEscapeLevel === 0
@@ -292,8 +293,8 @@ const results = computed(() => {
     /**
      * tag = 1时，利用指导价计算工时费
      *  总成本 = 收入
-        材料费用 + 总工时费 + 1个初始物品成本 = (成功率*指导价 + 逃逸率*逃逸价格或白板价格) * 95%
-        因此 总工时费 = (成功率*指导价 + 逃逸率*逃逸价格或白板价格) * 95% - 1个初始物品成本 - 材料费用
+        材料费用 + 总工时费 + 1个初始物品成本 = (成功率*指导价 + 逃逸率*逃逸价格或白板价格) * 96%
+        因此 总工时费 = (成功率*指导价 + 逃逸率*逃逸价格或白板价格) * 96% - 1个初始物品成本 - 材料费用
         每小时的工时费 = 总工时费  / actions * actionsPH
      */
 
@@ -871,10 +872,10 @@ watch(menuVisible, (value) => {
                   class="w-full"
                   style="width: 100%"
                   v-model="marketTaxRate"
-                  :step="5"
+                  :step="4"
                   :step-strictly="true"
                   :min="0"
-                  :max="5"
+                  :max="4"
                   controls-position="right"
                   :controls="true"
                   disabled
@@ -1104,11 +1105,11 @@ watch(menuVisible, (value) => {
                 <template #content>
                   总成本 = 材料费用 + 工时费 + 1个初始物品成本
                   <br>
-                  总收入 = (成功率*指导价 + 逃逸率*逃逸价格或白板价格) * 95%
+                  总收入 = (成功率*指导价 + 逃逸率*逃逸价格或白板价格) * 96%
                   <br>
                   总成本 = 总收入
                   <br>
-                  ∴ 指导价 = (总成本 / 95% - 逃逸率*逃逸价格或白板价格) / 成功率
+                  ∴ 指导价 = (总成本 / 96% - 逃逸率*逃逸价格或白板价格) / 成功率
                 </template>
                 <el-icon>
                   <Warning />

@@ -13,9 +13,11 @@ import { getStorageCalculatorItem } from "@/calculator/utils"
 import { WorkflowCalculator } from "@/calculator/workflow"
 import { getItemDetailOf, getMarketDataApi, getPriceOf, priceStepOf } from "@/common/apis/game"
 import { getCraftCostOf } from "@/common/apis/game/craft"
+import { guardedPriceOf, robustPriceOf } from "@/common/apis/game/priceGuard"
 import { getEquipmentList } from "@/common/apis/player"
 import { useMemory } from "@/common/composables/useMemory"
 import { SHOP_FIXED_PRICES } from "@/common/config"
+import { NO_TAX_FACTOR, SELL_TAX_FACTOR } from "@/common/constants/market"
 import { getEquipmentTypeOf } from "@/common/utils/game"
 import { useEnhancerStore } from "@/pinia/stores/enhancer"
 import { COIN_HRID, PRICE_STATUS_LIST, PriceStatus, useGameStore } from "@/pinia/stores/game"
@@ -28,13 +30,48 @@ const gameStore = useGameStore()
 const { t } = useI18n()
 const route = useRoute()
 
-// 目标等级快捷按钮：3 个可配置数值（齿轮弹窗改，本地记忆）
+// 目标等级快捷按钮：2~6 个可配置数值（齿轮弹窗改，本地记忆）
 const quickTargets = useMemory("enhancer-quick-targets", [10, 12, 14])
+// 旧版本 persisted 值可能残缺（如只有 2 档），长度不足时回填默认
+if (quickTargets.value.length < 2) {
+  quickTargets.value = [10, 12, 14]
+}
 const quickTargetsDraft = ref<number[]>([...quickTargets.value])
+const quickTargetsEditing = ref(false)
+function toggleQuickTargetsEditing() {
+  quickTargetsEditing.value = !quickTargetsEditing.value
+  if (quickTargetsEditing.value) {
+    quickTargetsDraft.value = [...quickTargets.value]
+  } else {
+    applyQuickTargets()
+  }
+}
 function applyQuickTargets() {
   const valid = quickTargetsDraft.value.map(Number).filter(v => Number.isFinite(v) && v >= 1 && v <= 20)
   if (valid.length) quickTargets.value = valid
 }
+function addQuickTarget() {
+  if (quickTargetsDraft.value.length >= 5) return
+  const max = quickTargetsDraft.value.reduce((m, v) => Math.max(m, Number(v) || 0), 0)
+  quickTargetsDraft.value.push(Math.min(20, (max || 10) + 2))
+  applyQuickTargets()
+}
+function removeQuickTarget(i: number) {
+  if (quickTargetsDraft.value.length <= 2) return
+  quickTargetsDraft.value.splice(i, 1)
+  applyQuickTargets()
+}
+
+// 编辑态点行外任意处=确认退出（不必再点齿轮）
+const quickTargetRowRef = ref<HTMLElement>()
+function handleQuickTargetOutside(e: MouseEvent) {
+  if (!quickTargetsEditing.value) return
+  if (quickTargetRowRef.value?.contains(e.target as Node)) return
+  quickTargetsEditing.value = false
+  applyQuickTargets()
+}
+onMounted(() => document.addEventListener("mousedown", handleQuickTargetOutside))
+onUnmounted(() => document.removeEventListener("mousedown", handleQuickTargetOutside))
 
 function getQueryFirstString(value: unknown): string | undefined {
   if (typeof value === "string") return value
@@ -122,14 +159,14 @@ const costGuideExpandedRowKeys = ref<string[]>([])
 
 const defaultConfig = {
   hourlyRate: 5000000,
-  taxRate: 5,
+  taxRate: 4,
   enhanceLevel: 10
 }
 
-// Market tax rate: only 0% / 5%.
-// Internally we persist `ignoreTax` (0% => true, 5% => false).
+// Market tax rate: only 0% / 4%.
+// Internally we persist `ignoreTax` (0% => true, 4% => false).
 const marketTaxRate = computed<number>({
-  get: () => (enhancerStore.config.ignoreTax ? 0 : 5),
+  get: () => (enhancerStore.config.ignoreTax ? 0 : 4),
   set: (value: number) => {
     enhancerStore.config.ignoreTax = value === 0
   }
@@ -865,7 +902,7 @@ const productMarketPrice = computed(() => {
   return getPriceOf(item.hrid, level, PriceStatus.ASK, PriceStatus.BID)
 })
 
-/** 与利润计算同口径的有效卖价：手填价优先，否则按全局卖出状态换算 */
+/** 与利润计算同口径的有效卖价：手填价优先，否则按全局卖出状态换算（含天价守卫） */
 const effectiveProductSellPrice = computed(() => {
   const item = currentItem.value
   const manual = item?.productPrice
@@ -876,14 +913,20 @@ const effectiveProductSellPrice = computed(() => {
     return -1
   }
   const level = enhancerStore.enhanceLevel ?? defaultConfig.enhanceLevel
-  return getPriceOf(item.hrid, level).bid
+  return guardedPriceOf(item.hrid, level, "bid")
 })
 
 /** 卖价超出当前市场挂单区间（最高买单价 ~ 最低卖单价）时提示，防止利润虚高 */
 const productPriceHint = computed<{ type: "warning" | "info", text: string } | null>(() => {
   const market = productMarketPrice.value
-  if (!market) {
+  const hrid = currentItem.value?.hrid
+  if (!market || !hrid) {
     return null
+  }
+  const level = enhancerStore.enhanceLevel ?? defaultConfig.enhanceLevel
+  const robust = robustPriceOf(hrid, level, "bid")
+  if (robust.degraded) {
+    return { type: "warning", text: t("当前买单价异常偏高，已按近期参考价计算") }
   }
   const price = effectiveProductSellPrice.value
   if (market.ask > 0 && price > market.ask) {
@@ -891,6 +934,9 @@ const productPriceHint = computed<{ type: "warning" | "info", text: string } | n
   }
   if (market.bid > 0 && price < market.bid) {
     return { type: "warning", text: t("卖价已低于当前最高买单价，直接卖给买单更划算") }
+  }
+  if (robust.thin) {
+    return { type: "info", text: t("该等级近期无成交，挂单价可信度低") }
   }
   if (price > 0 && market.ask <= 0) {
     return { type: "info", text: t("该等级当前无卖单挂价，卖价缺少市场参照") }
@@ -1067,7 +1113,7 @@ const results = computed(() => {
   console.time("[强化分解] results")
   const result = []
   const ignoreTax = !!enhancerStore.config.ignoreTax
-  const sellTaxFactor = ignoreTax ? 1 : 0.95
+  const sellTaxFactor = ignoreTax ? NO_TAX_FACTOR : SELL_TAX_FACTOR
   const enhanceLevel = enhancerStore.enhanceLevel ?? defaultConfig.enhanceLevel
   for (let i = 1; i <= enhanceLevel; ++i) {
     const calc = new EnhanceCalculator({
@@ -1091,8 +1137,8 @@ const results = computed(() => {
     const totalCostNoHourly = matCost + gearCost
     let totalCost = totalCostNoHourly + (enhancerStore.hourlyRate ?? defaultConfig.hourlyRate) * (actions / calc.actionsPH)
     if (!ignoreTax) {
-      // 游戏税从到账里扣（到账=卖价×0.95），想净得 totalCost 挂单价须 ÷(1-税率)；
-      // 旧写法 ×(1+税率) 会少收 0.25%（×1.05×0.95=0.9975）
+      // 游戏税从到账里扣（到账=卖价×0.96），想净得 totalCost 挂单价须 ÷(1-税率)；
+      // 旧写法 ×(1+税率) 会少收 0.16%（×1.04×0.96=0.9984）
       totalCost /= 1 - (enhancerStore.taxRate ?? defaultConfig.taxRate) / 100
     }
 
@@ -1539,7 +1585,7 @@ watch(menuVisible, (value) => {
                 <el-input-number
                   class="w-120px"
                   v-model="enhancerStore.config.taxRate"
-                  :step="5"
+                  :step="1"
                   :step-strictly="true"
                   :min="0"
                   :max="5"
@@ -1616,10 +1662,10 @@ watch(menuVisible, (value) => {
                   class="w-full"
                   style="width: 100%"
                   v-model="marketTaxRate"
-                  :step="5"
+                  :step="4"
                   :step-strictly="true"
                   :min="0"
-                  :max="5"
+                  :max="4"
                   controls-position="right"
                   :controls="true"
                   disabled
@@ -1710,57 +1756,80 @@ watch(menuVisible, (value) => {
           <el-divider class="mt-2 mb-2" />
 
           <ElTable :data="[currentItem]" :show-header="false" style="--el-table-border-color:none">
-            <el-table-column>
+            <el-table-column width="64">
               <template #default>
                 {{ t('目标') }}:
               </template>
             </el-table-column>
-            <el-table-column />
-            <el-table-column min-width="260" align="center">
+            <el-table-column align="center">
               <template #default>
-                <div class="flex items-center justify-center gap-1">
-                  <el-input-number
-                    class="max-w-100%"
-                    style="width: 88px"
-                    :max="20"
-                    :min="1"
-                    v-model="enhancerStore.config.enhanceLevel"
-                    :placeholder="Format.number(defaultConfig.enhanceLevel)"
-                    controls-position="right"
-                  />
-                  <el-button
-                    v-for="(v, i) in quickTargets"
-                    :key="i"
-                    size="small"
-                    plain
-                    class="quick-target-btn"
-                    :class="{ 'is-active': enhancerStore.config.enhanceLevel === v }"
-                    @click="enhancerStore.config.enhanceLevel = v"
-                  >
-                    {{ v }}
-                  </el-button>
-                  <el-popover placement="bottom" :width="230" trigger="click" @show="quickTargetsDraft = [...quickTargets]">
-                    <template #reference>
-                      <el-button size="small" text class="quick-target-btn">
+                <div ref="quickTargetRowRef" class="flex items-center justify-between gap-1">
+                  <div class="flex flex-wrap items-center gap-1">
+                    <el-tooltip :content="t('自定义档位')" placement="top">
+                      <el-button
+                        size="small"
+                        text
+                        class="quick-target-btn"
+                        :class="{ 'is-active': quickTargetsEditing }"
+                        @click="toggleQuickTargetsEditing()"
+                      >
                         <el-icon><Setting /></el-icon>
                       </el-button>
-                    </template>
-                    <div class="flex items-center gap-1">
-                      <el-input-number
-                        v-for="(v, i) in quickTargetsDraft"
+                    </el-tooltip>
+                    <template v-if="!quickTargetsEditing">
+                      <el-button
+                        v-for="(v, i) in quickTargets"
                         :key="i"
-                        v-model="quickTargetsDraft[i]!"
-                        :min="1"
-                        :max="20"
                         size="small"
-                        style="width: 56px"
-                        controls-position="right"
-                      />
-                      <el-button size="small" type="primary" @click="applyQuickTargets()">
-                        {{ t("确定") }}
+                        plain
+                        class="quick-target-btn"
+                        :class="{ 'is-active': enhancerStore.config.enhanceLevel === v }"
+                        @click="enhancerStore.config.enhanceLevel = v"
+                      >
+                        {{ v }}
                       </el-button>
-                    </div>
-                  </el-popover>
+                    </template>
+                    <template v-else>
+                      <div v-for="(v, i) in quickTargetsDraft" :key="i" class="quick-target-slot">
+                        <el-input-number
+                          v-model="quickTargetsDraft[i]!"
+                          :min="1"
+                          :max="20"
+                          size="small"
+                          style="width: 36px"
+                          :controls="false"
+                          @change="applyQuickTargets()"
+                        />
+                        <span
+                          v-if="quickTargetsDraft.length > 2"
+                          class="quick-target-close"
+                          :title="t('删除')"
+                          @click="removeQuickTarget(i)"
+                        >✕</span>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <el-input-number
+                      v-if="!quickTargetsEditing"
+                      class="max-w-100% shrink-0"
+                      style="width: 76px"
+                      :max="20"
+                      :min="1"
+                      v-model="enhancerStore.config.enhanceLevel"
+                      :placeholder="Format.number(defaultConfig.enhanceLevel)"
+                      controls-position="right"
+                    />
+                    <el-button
+                      v-if="quickTargetsEditing && quickTargetsDraft.length < 5"
+                      size="small"
+                      plain
+                      class="quick-target-btn"
+                      @click="addQuickTarget()"
+                    >
+                      +
+                    </el-button>
+                  </div>
                 </div>
               </template>
             </el-table-column>
@@ -1977,8 +2046,42 @@ watch(menuVisible, (value) => {
   padding: 0;
 }
 
+/* el-button 相邻默认 margin-left:12px，会把档位行挤成两行 */
+.quick-target-btn + .quick-target-btn {
+  margin-left: 0;
+}
+
 .quick-target-btn.is-active {
   color: var(--el-color-primary);
   border-color: var(--el-color-primary);
+}
+</style>
+
+<style lang="scss">
+/* 齿轮编辑态的槽位与 × 需要全局样式（弹窗/传送内容 scoped 作用不到） */
+.quick-target-slot {
+  position: relative;
+}
+
+.quick-target-slot .el-input__wrapper {
+  /* 组件库默认 0 15px 会把 44px 框里的数字挤到 14px 宽，必须强制覆盖 */
+  padding: 0 4px !important;
+}
+
+.quick-target-slot .el-input__inner {
+  padding: 0 2px;
+  text-align: center;
+}
+
+.quick-target-close {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--el-color-danger);
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
 }
 </style>
