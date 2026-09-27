@@ -138,6 +138,40 @@ export function getActionConfigOf(action: Action) {
   return playerConfig.actionConfigMap.get(action) ?? defaultPlayerConfig.actionConfigMap.get(action)!
 }
 
+/**
+ * 强化专业配置是否仍为默认值（未导入/未编辑本人配置）。
+ * 工具=80级默认+10、玩家等级100、房屋4、生活装备全空，且手/副手特殊装备也是默认——
+ * 此时打野工具页显示的强化成功率等属性来自默认预设，不是玩家本人的。
+ */
+export function isDefaultEnhancingConfigActive(): boolean {
+  const cur = playerConfig.actionConfigMap.get("enhancing")
+  const def = defaultPlayerConfig.actionConfigMap.get("enhancing")
+  // 默认预设还没构建好（游戏数据未加载）时不警告
+  if (!def) return false
+  // 从未配置过强化 = 用的就是默认预设（页面靠 getActionConfigOf 的兜底显示）
+  if (!cur) return true
+  const untouched = cur.playerLevel === def.playerLevel
+    && cur.houseLevel === def.houseLevel
+    && cur.tool.hrid === def.tool.hrid
+    && cur.tool.enhanceLevel === def.tool.enhanceLevel
+    && !cur.legs.hrid && !cur.body.hrid && !cur.back.hrid && !cur.charm.hrid
+  if (!untouched) return false
+  for (const type of ["hands", "off_hand"] as const) {
+    const curSpecial = playerConfig.specialEquimentMap.get(type)
+    const defSpecial = defaultPlayerConfig.specialEquimentMap.get(type)
+    // 两侧都没配 = 未动过默认；只动了一侧才算已配置
+    if (!curSpecial && !defSpecial) continue
+    if (!curSpecial || !defSpecial) {
+      // 改过或清空（清空=有意为之）都视为已配置
+      return false
+    }
+    if (curSpecial.hrid !== defSpecial.hrid || curSpecial.enhanceLevel !== defSpecial.enhanceLevel) {
+      return false
+    }
+  }
+  return true
+}
+
 /** 获取默认 action 配置（不依赖当前预设） */
 export function getDefaultActionConfigOf(action: Action) {
   return defaultPlayerConfig.actionConfigMap.get(action)!

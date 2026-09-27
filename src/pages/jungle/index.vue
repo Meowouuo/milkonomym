@@ -10,6 +10,7 @@ import { useRouter } from "vue-router"
 import { getPriceOf } from "@/common/apis/game"
 import { getDataApi as getJungleDataApi } from "@/common/apis/jungle"
 import { getDataApi as getSuperJungleDataApi } from "@/common/apis/jungle/junglest"
+import { isDefaultEnhancingConfigActive } from "@/common/apis/player"
 import { useMemory } from "@/common/composables/useMemory"
 import { usePriceStatus } from "@/common/composables/usePriceStatus"
 import * as Format from "@/common/utils/format"
@@ -103,6 +104,9 @@ const ldSearchData = useMemory("jungle-leaderboard-search-data", {
   onlySkillingTool: false,
   onlySkillingGear: false,
   maxItemLevel: undefined,
+  minSellPrice: undefined,
+  maxSellPrice: undefined,
+  noEscape: false,
   bestManufacture: false,
   exactLevelValues: [5, 7, 10, 12, 15],
   exactLevelActive: [false, false, false, false, false]
@@ -457,6 +461,14 @@ function formatExpectedTime(row: any) {
 
 const onPriceStatusChange = usePriceStatus("jungle-price-status")
 
+// 玩家反馈「显示的强化属性不是本人的」：配置仍是默认预设时提醒，不静默。
+// isDefaultEnhancingConfigActive 读的是模块级配置，Vue 追踪不到——
+// 显式读一次 store 配置建立响应式依赖，预设加载/切换后才会重算
+const showDefaultConfigWarning = computed(() => {
+  void usePlayerStore().config
+  return isDefaultEnhancingConfigActive()
+})
+
 function escapeRegExp(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
@@ -507,6 +519,13 @@ const isSuperJungle = computed(() => dataSource.value.type === "junglest")
         </el-radio-group>
       </div>
     </div>
+    <el-alert
+      v-if="showDefaultConfigWarning"
+      type="warning"
+      :closable="true"
+      class="mb-2"
+      :title="t('强化专业未配置本人数据：当前按默认预设计算（工具+10/等级100/房屋4/默认特殊装备），显示的强化属性不是你的。请到首页「一键导入」。')"
+    />
     <el-row :gutter="20" class="row">
       <el-col :xs="24" :sm="24" :md="24" :lg="24" :xl="16">
         <el-card>
@@ -579,6 +598,10 @@ const isSuperJungle = computed(() => dataSource.value.type === "junglest")
                 <el-input-number style="width:80px" v-model="ldSearchData.minSellPrice" placeholder="0" clearable @change="handleSearchLD" :controls="false" />&nbsp;M
               </el-form-item>
 
+              <el-form-item :label="`${t('售价')} ≤`">
+                <el-input-number style="width:80px" v-model="ldSearchData.maxSellPrice" placeholder="" clearable @change="handleSearchLD" :controls="false" />&nbsp;M
+              </el-form-item>
+
               <div style="display:flex; flex-wrap:nowrap; align-items:baseline;">
                 <el-form-item :label="`${t('物品等级')} ≥`">
                   <el-input-number style="width:80px" v-model="ldSearchData.minItemLevel" placeholder="0" clearable @change="handleSearchLD" :controls="false" />
@@ -595,6 +618,14 @@ const isSuperJungle = computed(() => dataSource.value.type === "junglest")
                 <el-checkbox v-model="ldSearchData.bestManufacture" @change="handleSearchLD">
                   {{ t('最佳制作方案') }}
                 </el-checkbox>
+              </el-form-item>
+
+              <el-form-item v-if="isSuperJungle">
+                <el-tooltip :content="t('不逃逸：失败跌级后不停止，一路强化到目标等级（默认关闭=自动选最优逃逸等级）')" placement="top">
+                  <el-checkbox v-model="ldSearchData.noEscape" @change="handleSearchLD">
+                    {{ t('不逃逸') }}
+                  </el-checkbox>
+                </el-tooltip>
               </el-form-item>
 
               <el-form-item>

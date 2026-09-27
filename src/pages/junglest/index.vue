@@ -7,6 +7,7 @@ import { ElMessage, ElMessageBox, type FormInstance, type Sort, ClickOutside as 
 import { cloneDeep, debounce } from "lodash-es"
 
 import { getDataApi } from "@/common/apis/jungle/junglest"
+import { isDefaultEnhancingConfigActive } from "@/common/apis/player"
 import { useMemory } from "@/common/composables/useMemory"
 import { usePriceStatus } from "@/common/composables/usePriceStatus"
 import * as Format from "@/common/utils/format"
@@ -61,6 +62,9 @@ const ldSearchData = useMemory("junglest-leaderboard-search-data", {
   minLevel: 1,
   minOriginLevel: undefined,
   maxOriginLevel: undefined,
+  minSellPrice: undefined,
+  maxSellPrice: undefined,
+  noEscape: false,
   banEquipment: false,
   bestManufacture: false,
   exactLevelValues: [5, 7, 10, 12, 15],
@@ -330,6 +334,9 @@ function setPrice(row: Calculator) {
 
 const { t } = useI18n()
 
+// 玩家反馈「显示的强化属性不是本人的」：配置仍是默认预设时提醒，不静默
+const showDefaultConfigWarning = computed(() => isDefaultEnhancingConfigActive())
+
 const onPriceStatusChange = usePriceStatus("junglest-price-status")
 </script>
 
@@ -347,6 +354,13 @@ const onPriceStatusChange = usePriceStatus("junglest-price-status")
         {{ t('打野爽！') }}
       </div>
     </div>
+    <el-alert
+      v-if="showDefaultConfigWarning"
+      type="warning"
+      :closable="true"
+      class="mb-2"
+      :title="t('强化专业未配置本人数据：当前按默认预设计算（工具+10/等级100/房屋4/默认特殊装备），显示的强化属性不是你的。请到首页「一键导入」。')"
+    />
     <el-row :gutter="20" class="row">
       <el-col :xs="24" :sm="24" :md="24" :lg="24" :xl="24">
         <el-card>
@@ -404,8 +418,24 @@ const onPriceStatusChange = usePriceStatus("junglest-price-status")
                 <el-input-number style="width:80px" :min="ldSearchData.minOriginLevel || 1" :max="20" v-model="ldSearchData.maxOriginLevel" placeholder="20" clearable @change="handleOriginLevelChange('max')" controls-position="right" />
               </el-form-item>
 
+              <el-form-item :label="`${t('售价')} ≥`">
+                <el-input-number style="width:80px" v-model="ldSearchData.minSellPrice" placeholder="0" clearable @change="handleSearchLD" :controls="false" />&nbsp;M
+              </el-form-item>
+
+              <el-form-item :label="`${t('售价')} ≤`">
+                <el-input-number style="width:80px" v-model="ldSearchData.maxSellPrice" placeholder="" clearable @change="handleSearchLD" :controls="false" />&nbsp;M
+              </el-form-item>
+
               <el-form-item :label="`${t('风险')} ≤`">
                 <el-input-number style="width:80px" v-model="ldSearchData.maxRisk" clearable @change="handleSearchLD" :controls="false" />
+              </el-form-item>
+
+              <el-form-item>
+                <el-tooltip :content="t('不逃逸：失败跌级后不停止，一路强化到目标等级（默认关闭=自动选最优逃逸等级）')" placement="top">
+                  <el-checkbox v-model="ldSearchData.noEscape" @change="handleSearchLD">
+                    {{ t('不逃逸') }}
+                  </el-checkbox>
+                </el-tooltip>
               </el-form-item>
             </el-form>
           </template>
