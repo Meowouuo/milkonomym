@@ -10,6 +10,54 @@ const { locale, t } = useI18n()
     <h2 class="changelog-header">
       {{ t("更新日志") }}<PolokikiBadge />
     </h2>
+    <!-- ================== v2.8.2 ================== -->
+    <details open>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.8.2 — 2026-09-27
+      </summary>
+      <div style="padding-left:16px">
+        <template v-if="locale !== 'en'">
+          <p><strong>一、市场税率 5% → 4%（随游戏更新，重要）</strong></p>
+          <ol>
+            <li>游戏已将市场税率从 5% 降至 4%，全站税后到手口径同步（×0.95 → ×0.96）：利润榜、强化、超炼、贤者、转化链等各页利润约上浮 1%。</li>
+            <li>强化计算 / 强化模拟 / 贤者页「税率%」锁定值改为 4，旧存值自动迁移，无需手动改；强化页「溢价率%」默认跟至 4（仍可自行调高）。</li>
+          </ol>
+          <p><strong>二、易用性</strong></p>
+          <ol>
+            <li>强化计算页「目标」档位行内编辑：点齿轮进入编辑，可增删档位（2~5 个），改完点页面空白处即保存；旧版残缺档位数据自动修复。</li>
+            <li>首页列设置弹窗独立滚动：小屏不再超出屏幕底部，列表可滚、不牵动背后页面。</li>
+            <li>「最高利润步骤」勾选开放到全部动作页，且只在同一动作内比较多条步数路径——物品不再因其他动作利润更高而被误删。</li>
+          </ol>
+          <p><strong>三、修复</strong></p>
+          <ol>
+            <li>英文 / 繁中界面：多步火车单被动作筛选整行滤掉（选 Crafting 看不到「N steps」行）；利润榜缓存增加语言维度，切换语言不再串数据。</li>
+            <li>预设「战斗房等级」刷新后丢失（保存成功但读取时被遗漏）。</li>
+            <li>神龛每级加成修正：精神（精华发现）2%→3%、稀有（稀有发现）1%→1.5%（据游戏内实测对账，力量/节奏/学者原本正确）。</li>
+          </ol>
+        </template>
+        <template v-else>
+          <p><strong>1. Market tax 5% → 4% (following the game update, important)</strong></p>
+          <ol>
+            <li>The game lowered the market tax from 5% to 4%; all after-tax figures across the site now use ×0.96 — profits on the leaderboard, enhance, super-alchemy, philosopher and transmute-chain pages are up by roughly 1%.</li>
+            <li>The locked "Tax Rate" on the enhance / super-enhance / philosopher pages is now 4; saved values migrate automatically. The enhance page's "Premium %" defaults to 4 (still adjustable).</li>
+          </ol>
+          <p><strong>2. Usability</strong></p>
+          <ol>
+            <li>Enhance page target levels: inline editing via the gear icon (2–5 slots), click anywhere outside to save; broken legacy slot data auto-repairs.</li>
+            <li>Homepage column-settings popover scrolls independently — no longer clipped on short screens, and scrolling no longer drags the page behind.</li>
+            <li>"Top-Profit Step" is now available on every action tab and only compares paths within the same action — items no longer vanish because another action is more profitable.</li>
+          </ol>
+          <p><strong>3. Fixes</strong></p>
+          <ol>
+            <li>EN / zh-TW UI: multi-step train rows were filtered out by the action select (no "N steps" rows under Crafting); the leaderboard cache is now locale-scoped.</li>
+            <li>Preset "Combat house level" was lost on refresh (saved but skipped when loading).</li>
+            <li>Shrine per-level bonuses corrected: Spirit (essence find) 2%→3%, Rare (rare find) 1%→1.5% (verified in-game; Power/Rhythm/Scholar were already correct).</li>
+          </ol>
+        </template>
+      </div>
+    </details>
+
+    <hr>
     <!-- ================== v2.8.1 ================== -->
     <details open>
       <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
