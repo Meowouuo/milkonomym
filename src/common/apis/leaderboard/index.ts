@@ -30,7 +30,7 @@ export async function getLeaderboardDataApi(params: Leaderboard.RequestData) {
 
   let profitList: Calculator[] = []
   const includeRare = params.includeRare !== false
-  const cacheKey = `${useGameStoreOutside().marketData!.timestamp}-${includeTax ? "tax" : "noTax"}-r${includeRare ? "1" : "0"}-${crossStepBalance ? "csb" : "noCsb"}-buy${useGameStoreOutside().buyStatus}-sell${useGameStoreOutside().sellStatus}-v${usePlayerStoreOutside().configVersion}`
+  const cacheKey = `${useGameStoreOutside().marketData!.timestamp}-${includeTax ? "tax" : "noTax"}-r${includeRare ? "1" : "0"}-${crossStepBalance ? "csb" : "noCsb"}-buy${useGameStoreOutside().buyStatus}-sell${useGameStoreOutside().sellStatus}-v${usePlayerStoreOutside().configVersion}-l${getTrans("制造")}`
   const cached = useGameStoreOutside().getLeaderboardCache(cacheKey)
   if (cached && cached.length > 0) {
     profitList = cached
@@ -302,7 +302,9 @@ export async function getLeaderboardDataApi(params: Leaderboard.RequestData) {
     }
   }
 
-  // 最高利润步骤：同一产物的多条步数路径（1步买料 / 2步…N步火车）只保留利润/h 最高的一条
+  // 最高利润步骤：同一产物在**同一动作**下的多条步数路径（1步买料 / 2步…N步火车）只保留利润/h 最高的一条。
+  // key 必须带 project：同一物品在 挤奶/转化/分解/点金 等动作下各有一行，只按 hrid 去重会把当前动作的行
+  // 误删（如神圣牛奶的转化行利润高于挤奶行时，挤奶列表里就丢了）——去重发生在 handleSearch 按动作过滤之前。
   if (params.bestStepOnly) {
     const bestOf = new Map<string, any>()
     const noHrid: any[] = []
@@ -312,9 +314,10 @@ export async function getLeaderboardDataApi(params: Leaderboard.RequestData) {
         noHrid.push(row)
         continue
       }
-      const prev = bestOf.get(hrid)
+      const key = `${row.project}|${hrid}`
+      const prev = bestOf.get(key)
       if (!prev || (row.result?.profitPH ?? -Infinity) > (prev.result?.profitPH ?? -Infinity)) {
-        bestOf.set(hrid, row)
+        bestOf.set(key, row)
       }
     }
     profitList = noHrid.concat(Array.from(bestOf.values()))

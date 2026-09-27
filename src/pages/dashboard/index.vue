@@ -509,16 +509,16 @@ const onPriceStatusChange = usePriceStatus("dashboard-price-status")
                     </el-icon>
                   </el-tooltip>
                 </el-form-item>
-
-                <el-form-item :label="t('最高利润步骤')">
-                  <el-checkbox v-model="ldSearchData.bestStepOnly" @change="handleSearchLD" />
-                  <el-tooltip :content="t('同一产物有多条步数路径（如2步/5步锻造）时，只保留利润/h最高的一条')" placement="top">
-                    <el-icon style="margin-left:6px;cursor:help;color:#909399">
-                      <QuestionFilled />
-                    </el-icon>
-                  </el-tooltip>
-                </el-form-item>
               </template>
+
+              <el-form-item :label="t('最高利润步骤')">
+                <el-checkbox v-model="ldSearchData.bestStepOnly" @change="handleSearchLD" />
+                <el-tooltip :content="t('同一产物有多条步数路径（如2步/5步锻造）时，只保留利润/h最高的一条')" placement="top">
+                  <el-icon style="margin-left:6px;cursor:help;color:#909399">
+                    <QuestionFilled />
+                  </el-icon>
+                </el-tooltip>
+              </el-form-item>
 
               <el-form-item prop="name" :label="`${t('利润率')} >`">
                 <el-input style="width:60px" v-model="ldSearchData.profitRate" :placeholder="t('请输入')" clearable @input="handleSearchLD" />&nbsp;%

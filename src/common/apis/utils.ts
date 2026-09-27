@@ -1,4 +1,5 @@
 import type Calculator from "@/calculator"
+import { getTrans } from "@/locales"
 import { getEquipmentTypeOf } from "../utils/game"
 import { getPriceOf } from "./game"
 import { normalizeProject } from "./leaderboard/tierChains"
@@ -78,7 +79,11 @@ export function handleSearch(profitList: Calculator[], params: any) {
       }
     } else {
       const target = normalizeProject(params.project)
-      profitList = profitList.filter(cal => normalizeProject(cal.project).includes(target) || cal.project.includes(params.project!))
+      // 多步火车行的 project 是复合名（「2步制造」/「2 Step Crafting」/「2步製造」），
+      // 不是 PROJECT_ALIAS 的完整 key，归一化对它失效；须再按当前语言译名做子串匹配，
+      // 否则英文/繁中界面下火车行会被动作筛选整行滤掉（反馈池 #4）
+      const targetTrans = getTrans(params.project)
+      profitList = profitList.filter(cal => normalizeProject(cal.project).includes(target) || cal.project.includes(params.project!) || cal.project.includes(targetTrans))
     }
   }
   params.banEquipment && (profitList = profitList.filter(cal => !cal.isEquipment))
