@@ -357,7 +357,16 @@ watch(() => [gameStore.buyStatus, gameStore.sellStatus], () => {
             <template #default="{ row }">
               <template v-if="row.hrid">
                 <div :class="row.overBudget ? 'opacity-50' : ''">
-                  {{ Format.price(row.cost) }}
+                  <el-tooltip
+                    v-if="row.costSource === 'philosopher'"
+                    :content="t('市场买价 {0} / 贤者镜路径 {1}，取低', [Format.price(row.marketCost), Format.price(row.mirrorCost)])"
+                    placement="top"
+                  >
+                    <span class="cursor-help">{{ Format.price(row.cost) }} 🪞</span>
+                  </el-tooltip>
+                  <template v-else>
+                    {{ Format.price(row.cost) }}
+                  </template>
                   <el-tag v-if="row.overBudget" size="small" type="danger">
                     {{ t("超预算") }}
                   </el-tag>

@@ -5,9 +5,11 @@ import { CoinifyCalculator, DecomposeCalculator, TransmuteCalculator } from "@/c
 import { GatherCalculator } from "@/calculator/gather"
 import { ManufactureCalculator } from "@/calculator/manufacture"
 import { DEFAULT_SEPCIAL_EQUIPMENT_LIST } from "@/common/config"
+import { SELL_TAX_FACTOR } from "@/common/constants/market"
 import { getTrans } from "@/locales"
 import { getGameDataApi, getItemDetailOf, getMarketDataApi, getPriceOf } from "../game"
 import { getDefaultActionConfigOf, getEquipmentListOf, getPlayerLevelOf, getSpecialEquipmentListOf, runWithPlayerContext } from "../player"
+import { philosopherCostOf } from "./philosopherCost"
 
 type ActionSlot = "tool" | "body" | "legs" | "back" | "charm"
 type SpecialSlot = "off_hand" | "head" | "hands" | "feet" | "neck" | "earrings" | "ring" | "pouch"
@@ -22,8 +24,14 @@ export interface UpgradeCandidate {
   itemLevel: number
   /** 评估所用的强化等级 */
   evalLevel: number
-  /** 该强化等级的市场买价 */
+  /** 该强化等级的市场买价；勾到贤者镜路径更便宜时 = 镜子路径纯料成本 */
   cost: number
+  /** 贤者镜路径取低标注：cost 已取 min(市场买价, 镜子路径) */
+  costSource?: "philosopher"
+  /** 市场买价（走镜子路径时供对照展示） */
+  marketCost?: number
+  /** 镜子路径纯料成本（比市场便宜时才填） */
+  mirrorCost?: number
   /** Δ利润/时（N 个基准项目的平均；护符口径下无意义，恒 0） */
   profitDelta: number
   /** Δ经验/时（N 个基准项目的平均，仅护符口径使用） */
@@ -384,8 +392,9 @@ export async function getUpgradeCompareApi(params: UpgradeCompareParams): Promis
           ? { hrid: currentEq.hrid, name: itemDisplayName(currentEq.hrid), level: currentLevel }
           : undefined
         // 现装售卖价（卖价侧口径）：换装后旧装备卖掉回血，无买单价记 0（bid 为 NaN 时同样记 0，防净支出算出 NaN）
+        // 卖出收 4% 税，回血按税后计（与 calculator 卖出税口径一致）
         const oldSellPrice = currentEq?.hrid
-          ? Math.max(0, Number.isFinite(getPriceOf(currentEq.hrid, currentLevel).bid) ? getPriceOf(currentEq.hrid, currentLevel).bid : 0)
+          ? Math.max(0, Number.isFinite(getPriceOf(currentEq.hrid, currentLevel).bid) ? getPriceOf(currentEq.hrid, currentLevel).bid * SELL_TAX_FACTOR : 0)
           : 0
 
         let candidateList: ItemDetail[] = []
@@ -409,8 +418,17 @@ export async function getUpgradeCompareApi(params: UpgradeCompareParams): Promis
           for (const level of levelsFor(cand.hrid, params.evalMode, currentLevel)) {
             // 跳过与现装完全相同的（同物品同强化等级）；同款低强化也不考虑（若被评估为提升，多半是现装等级数据缺失）
             if (sameHrid && level <= currentLevel) continue
-            const cost = getPriceOf(cand.hrid, level).ask
-            if (typeof cost !== "number" || !Number.isFinite(cost) || cost <= 0) continue
+            const marketCost = getPriceOf(cand.hrid, level).ask
+            if (typeof marketCost !== "number" || !Number.isFinite(marketCost) || marketCost <= 0) continue
+
+            // 贤者镜路径比价：买低级 + 镜子冲到目标级，与市场买价取低（V1 仅对市场已有卖单的等级比价）
+            const mirrorPlan = philosopherCostOf(cand.hrid, level)
+            let cost = marketCost
+            let costSource: "market" | "philosopher" | undefined
+            if (mirrorPlan && mirrorPlan.totalCost > 0 && mirrorPlan.totalCost < marketCost) {
+              cost = mirrorPlan.totalCost
+              costSource = "philosopher"
+            }
 
             const swappedConfig = isSpecialSlot(slot)
               ? withSpecialSwapped(preset.config, slot, cand.hrid, level)
@@ -434,6 +452,9 @@ export async function getUpgradeCompareApi(params: UpgradeCompareParams): Promis
               itemLevel: cand.itemLevel,
               evalLevel: level,
               cost,
+              ...(costSource === "philosopher"
+                ? { costSource, marketCost, mirrorCost: mirrorPlan!.totalCost }
+                : {}),
               profitDelta: isExpMetric ? 0 : delta.profitDelta,
               expDelta: delta.expDelta,
               isExpMetric,
