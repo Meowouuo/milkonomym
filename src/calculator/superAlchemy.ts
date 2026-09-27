@@ -1,7 +1,9 @@
 import type Calculator from "."
 import type { ItemDetail } from "~/game"
 import { CoinifyCalculator, DecomposeCalculator, TransmuteCalculator } from "@/calculator/alchemy"
+import { STONE_HRID } from "@/calculator/alchemyChain"
 import { getGameDataApi, getItemDetailOf, getPriceOf } from "@/common/apis/game"
+import { getCraftCostOf } from "@/common/apis/game/craft"
 import { getUsedPriceOf } from "@/common/apis/price"
 import { getTrans } from "@/locales"
 import { COIN_HRID } from "@/pinia/stores/game"
@@ -191,6 +193,8 @@ function unitEval(hrid: string, ctx: Ctx): SuperUnitEval {
   ctx.inProgress.add(hrid)
   try {
     for (const { action } of ACTION_CTORS) {
+      // 贤者之石是转化终点：不再作为原料继续转化（仍可直卖/点金）
+      if (action === "transmute" && hrid === STONE_HRID) continue
       for (const catalystRank of options.catalystRanks) {
         const calc = calcOf(action, hrid, catalystRank, taxFactor, options.includeRare)
         if (!calc) continue
@@ -206,7 +210,17 @@ function unitEval(hrid: string, ctx: Ctx): SuperUnitEval {
         let cutIncome = 0
         for (const product of calc.productListWithPrice) {
           const countPerUnit = actionsPerItem * product.count * (product.rate || 1) * calc.successRate
-          if (countPerUnit < MIN_COUNT) continue
+          if (countPerUnit < MIN_COUNT) {
+            // 期望产量过低不再展开/单列，但按卖出价计入期望收入（工匠匣等稀有掉落曾在此被整条丢弃）
+            if (product.hrid === COIN_HRID) {
+              const denom = product.marketPrice && product.marketPrice > 0 ? product.marketPrice : 1
+              cutIncome += countPerUnit * denom
+            } else {
+              const v = sellValueOf(product.hrid, taxFactor)
+              if (v > 0) cutIncome += countPerUnit * v
+            }
+            continue
+          }
           // 自返产物（如技能书 93.5% 变回自己）继续展开会成环，按卖出价计入收益
           if (product.hrid === hrid) {
             const v = sellValueOf(hrid, taxFactor)
@@ -309,8 +323,13 @@ export function computeSuperAlchemy(options: SuperAlchemyOptions): SuperAlchemyR
   const rows: SuperAlchemyRow[] = []
   for (const item of Object.values(getGameDataApi().itemDetailMap)) {
     if (!item.isTradable || !hasAlchemyDetail(item)) continue
-    const ask = getUsedPriceOf(item.hrid, 0, "ask") ?? -1
-    if (ask < 0) continue // 市场无卖单，链条无从买起
+    let ask = getUsedPriceOf(item.hrid, 0, "ask") ?? -1
+    // 与首页口径对齐：市场买不到但有制造配方时，按自制材料成本计价（买不到就自己造）
+    if (ask < 0) {
+      const craft = getCraftCostOf(item.hrid)
+      if (craft >= 0) ask = craft
+    }
+    if (ask < 0) continue // 无卖单也无配方，链条无从买起
     const ev = unitEval(item.hrid, ctx)
     if (ev.action === "sell") continue // 最优处置就是直卖，无炼金意义
     const profit = ev.unitNet - ask

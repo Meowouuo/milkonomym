@@ -290,6 +290,11 @@ function showDetail(row: SuperAlchemyRow) {
       <el-checkbox v-model="includeRare">
         {{ t('稀有发现') }}
       </el-checkbox>
+      <el-tooltip :content="t('口径：利润不含经验；税率默认4%；市场无卖单但有配方的物品按自制成本计价，与首页一致')" placement="top">
+        <el-icon style="cursor: help; vertical-align: middle;">
+          <QuestionFilled />
+        </el-icon>
+      </el-tooltip>
     </div>
 
     <el-card>

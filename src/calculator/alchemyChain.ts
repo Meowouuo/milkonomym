@@ -201,6 +201,8 @@ export function computeTransmuteChain(hrid: string, opts: ChainOptions): Transmu
   const queue = [hrid]
   while (queue.length) {
     const cur = queue.shift()!
+    // 贤者之石是终点，不展开它的转化掉落表
+    if (isTerminalStone(cur)) continue
     const table = alchemyDetailOf(cur)?.transmuteDropTable
     if (!table) continue
     const entry = getEntry(TransmuteCalculator, cur, opts, entryCache)
@@ -241,6 +243,8 @@ export function computeTransmuteChain(hrid: string, opts: ChainOptions): Transmu
   let current = hrid
   const visited = new Set<string>([hrid])
   for (let step = 0; step < 15; step++) {
+    // 路径走到贤者之石即收尾，不再从它继续转化
+    if (isTerminalStone(current)) break
     const curDetail = alchemyDetailOf(current)
     const entry = curDetail?.transmuteDropTable ? getEntry(TransmuteCalculator, current, opts, entryCache) : null
     if (!entry) break
@@ -294,6 +298,8 @@ export function computeTransmuteChain(hrid: string, opts: ChainOptions): Transmu
  * 主产物按 values 计价，稀有掉落与边际成本按净消耗摊到单件。
  */
 function transmuteStepEV(hrid: string, opts: ChainOptions, entryCache: Map<string, CalcEntry | null>, values: Map<string, number>): number {
+  // 贤者之石是终点：只有退出价值，没有转化期望
+  if (isTerminalStone(hrid)) return -Infinity
   const detail = alchemyDetailOf(hrid)
   if (!detail?.transmuteDropTable) return -Infinity
   const entry = getEntry(TransmuteCalculator, hrid, opts, entryCache)
@@ -312,6 +318,11 @@ function transmuteStepEV(hrid: string, opts: ChainOptions, entryCache: Map<strin
 
 /** 贤者之石 hrid */
 export const STONE_HRID = "/items/philosophers_stone"
+
+/** 贤者之石是转化终点：转成贤者即停，不再作为原料继续转化（仍可直卖/点金） */
+export function isTerminalStone(hrid: string): boolean {
+  return hrid === STONE_HRID
+}
 
 export interface StoneSourceRow {
   hrid: string

@@ -54,6 +54,10 @@ export function costTime(value: number) {
 }
 
 export function percent(value: number, decimal = 2) {
+  // 非有限值（Infinity/NaN，如成本为 0 算利润率）显示为 —，不出现 Infinity%
+  if (!Number.isFinite(value)) {
+    return "—"
+  }
   return `${Math.round(value * 100 * (10 ** decimal)) / (10 ** decimal)}%`
 }
 
