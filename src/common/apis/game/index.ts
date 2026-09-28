@@ -32,7 +32,6 @@ watch(() => useGameStoreOutside().gameData, () => {
   initProcessingProductMap()
 }, { immediate: true })
 watch(() => useGameStoreOutside().marketData, () => {
-  console.log("raw marketData changed")
   const data = Object.freeze(structuredClone(toRaw(useGameStoreOutside().marketData)))
   game.marketData = data
   _priceCache = {}
@@ -60,12 +59,16 @@ export function getMarketDataApi() {
   return res!
 }
 const SPECIAL_PRICE: Record<string, () => MarketItemPrice> = {
-  "/items/cowbell": () => ({
-    ask: getPriceOf("/items/bag_of_10_cowbells").ask / 10 || 40000,
-    bid: getPriceOf("/items/bag_of_10_cowbells").bid / 10 || 40000,
-    avg: -1,
-    vol: -1
-  }),
+  "/items/cowbell": () => {
+    const bag = getPriceOf("/items/bag_of_10_cowbells")
+    // 无市价时 ask/bid 为 -1，-1/10 是 truthy 会漏过 || 兜底，必须显式判断
+    return {
+      ask: bag.ask > 0 ? bag.ask / 10 : 40000,
+      bid: bag.bid > 0 ? bag.bid / 10 : 40000,
+      avg: -1,
+      vol: -1
+    }
+  },
   "/items/coin": () => ({
     ask: 1,
     bid: 1,
@@ -75,7 +78,7 @@ const SPECIAL_PRICE: Record<string, () => MarketItemPrice> = {
 }
 
 function convertPriceOfStatus(price: MarketItemPrice, buyStatus: PriceStatus, sellStatus: PriceStatus) {
-  function convert(status: PriceStatus) {
+  function convert(status: PriceStatus, side: "ask" | "bid") {
     const result = { price: -1 }
     switch (status) {
       case PriceStatus.ASK:
@@ -96,13 +99,17 @@ function convertPriceOfStatus(price: MarketItemPrice, buyStatus: PriceStatus, se
           result.price = priceStepOf(result.price, true)
         }
         break
+      case PriceStatus.MARKET:
+        // 市场价格：不做档位换算，按侧直取原始挂单价
+        result.price = side === "ask" ? price.ask : price.bid
+        break
     }
     return result
   }
 
   return {
-    ask: convert(buyStatus).price,
-    bid: convert(sellStatus).price,
+    ask: convert(buyStatus, "ask").price,
+    bid: convert(sellStatus, "bid").price,
     // avg/vol are not affected by buy/sell status; keep raw values
     avg: price.avg,
     vol: price.vol
@@ -211,13 +218,14 @@ function isLoot(hrid: string) {
 
 function getLootPrice(hrid: string): MarketItemPrice {
   const drop = getGameDataApi().openableLootDropMap[hrid]
+  if (!drop) return { ask: -1, bid: -1, avg: -1, vol: -1 }
   return drop.reduce((acc, cur) => {
     const count = (cur.maxCount + cur.minCount) / 2
     const item = getPriceOf(cur.itemHrid)
     acc.ask += item.ask * count * cur.dropRate
     acc.bid += item.bid * count * cur.dropRate
     return acc
-  }, { ask: 0, bid: 0 })
+  }, { ask: 0, bid: 0, avg: -1, vol: -1 })
 }
 
 export function getItemDetailOf(hrid: string) {
@@ -241,7 +249,9 @@ export function getActionDetailOf(key: string) {
 export function getCommunityBuffDetailOf(hrid: string) {
   let result = _communityBuffTypeDetailMapCache[hrid]
   if (!result) {
-    result = getGameDataApi().communityBuffTypeDetailMap[hrid]
+    // 游戏数据未加载完成时返回 undefined，调用方需自行判空（模板首屏竞态）
+    const map = getGameDataApi()?.communityBuffTypeDetailMap
+    result = map?.[hrid]
     result && (_communityBuffTypeDetailMapCache[hrid] = result)
   }
   return result
@@ -263,7 +273,7 @@ export function getPersonalBuffDetailOf(hrid: string) {
 export function getAchievementTierDetailOf(hrid: string) {
   let result = _achievementTierDetailMapCache[hrid]
   if (!result) {
-    const map = getGameDataApi().achievementTierDetailMap
+    const map = getGameDataApi()?.achievementTierDetailMap
     if (!map) {
       return undefined
     }
@@ -437,3 +447,46 @@ export function getTransmuteExp(item: ItemDetail) {
 }
 
 // #endregion
+
+/** 多窗口成交量：1h = 当前市场数据；N小时 = 最近 N 条小时快照求和 */
+export function getVolOf(hrid: string, level: number = 0, hours: number = 1): number {
+  if (hours <= 1) return getPriceOf(hrid, level).vol ?? -1
+  const hist = useGameStoreOutside().volHistory
+  if (!hist || hist.length === 0) return -1
+  let sum = 0
+  for (const snap of hist.slice(-hours)) {
+    sum += snap.v?.[`${hrid}@${level}`] || 0
+  }
+  return sum
+}
+
+/** 实时订单簿价格 */
+export function getRealtimePriceOf(hrid: string, level: number = 0): { ask: number, bid: number, isRealtime: boolean } {
+  const rt = useGameStoreOutside().realtimeData
+  const key = `${hrid}@${level}`
+  const snap = rt?.data?.[key]
+  // 240s 窗口 = 上报批次 30s + 边缘缓存最长 ~120s + 余量（免费档边缘 TTL 下限所致）
+  if (snap && snap.t > Date.now() - 240_000) {
+    return { ask: snap.a, bid: snap.b, isRealtime: true }
+  }
+  const p = getPriceOf(hrid, level)
+  return { ask: p.ask, bid: p.bid, isRealtime: false }
+}
+
+export function getRealtimeAgeSec(): number {
+  const rt = useGameStoreOutside().realtimeData
+  if (!rt || !rt.ts) return -1
+  return Math.floor((Date.now() - rt.ts) / 1000)
+}
+
+/** 催化剂价格侧独立设置 */
+let currentCatalystStatus: PriceStatus | null = null
+export function setCatalystBuyStatus(status: PriceStatus | null) {
+  currentCatalystStatus = status
+}
+export function getCatalystBuyStatus(): PriceStatus | null {
+  return currentCatalystStatus
+}
+export function getCatalystAskOf(hrid: string): number {
+  return getPriceOf(hrid, 0, currentCatalystStatus ?? currentBuyStatus).ask
+}

@@ -2,6 +2,7 @@ import type { CalculatorConfig, Ingredient, IngredientWithPrice, Product } from 
 import * as Format from "@@/utils/format"
 import * as math from "mathjs"
 import { getEnhancelateCache, getEnhancementExp, getEnhanceTimeCost, getEnhancingEssenceDropTable, getEnhancingRareDropTable, getGameDataApi, getItemDetailOf, getPriceOf, setEnhancelateCache } from "@/common/apis/game"
+import { guardedPriceOf } from "@/common/apis/game/priceGuard"
 import { getBuffOf, getEnhanceSuccessRatio, getTeaIngredientList } from "@/common/apis/player"
 import { SELL_TAX_FACTOR } from "@/common/constants/market"
 import { getTrans } from "@/locales"
@@ -254,11 +255,11 @@ export class EnhanceCalculator extends Calculator {
       // 为了与Calculator的设计理念一致，这里需要将成本和收益转换为单次成本和单次收益
       const { actions, protects } = this.enhancelate()
       this._ingredientList = [
-        // 本体
+        // 本体（高等级孤例天价卖单不直接当造价，走守卫参考价）
         {
           hrid: this.item.hrid,
           count: 1 / actions,
-          marketPrice: getPriceOf(this.item.hrid, this.originLevel).ask,
+          marketPrice: guardedPriceOf(this.item.hrid, this.originLevel, "ask"),
           level: this.originLevel
         },
         // 垫子
@@ -296,11 +297,11 @@ export class EnhanceCalculator extends Calculator {
       this._targetRate = successRate
 
       this._productList = [
-      // 强化后的本体
+      // 强化后的本体（薄市场孤例天价买单不直接当售价，走守卫参考价）
         {
           hrid: this.item.hrid,
           count: 1 / actions * successRate,
-          marketPrice: getPriceOf(this.item.hrid, this.enhanceLevel).bid,
+          marketPrice: guardedPriceOf(this.item.hrid, this.enhanceLevel, "bid"),
           level: this.enhanceLevel
         }
       ]
@@ -310,7 +311,7 @@ export class EnhanceCalculator extends Calculator {
         this._productList.push({
           hrid: this.item.hrid,
           count: 1 / actions * escapeRate,
-          marketPrice: getPriceOf(this.item.hrid, this.realEscapeLevel).bid,
+          marketPrice: guardedPriceOf(this.item.hrid, this.realEscapeLevel, "bid"),
           level: this.realEscapeLevel
         })
       }

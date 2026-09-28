@@ -10,14 +10,14 @@ const { t } = locales.global
 /** 查 */
 export async function getDataApi(params: any) {
   let profitList: EnhanceCalculator[] = []
-  const junglestKey = `${useGameStoreOutside().marketData!.timestamp}-buy${useGameStoreOutside().buyStatus}-sell${useGameStoreOutside().sellStatus}`
+  const junglestKey = `${useGameStoreOutside().marketData!.timestamp}-buy${useGameStoreOutside().buyStatus}-sell${useGameStoreOutside().sellStatus}-noEsc${params.noEscape ? 1 : 0}`
   if (useGameStoreOutside().getJunglestCacheByKey(junglestKey)) {
     profitList = useGameStoreOutside().getJunglestCacheByKey(junglestKey)
   } else {
     await new Promise(resolve => setTimeout(resolve, 300))
     const startTime = Date.now()
     try {
-      profitList = profitList.concat(calcSuperEnhanceProfit())
+      profitList = profitList.concat(calcSuperEnhanceProfit(!!params.noEscape))
     } catch (e: any) {
       console.error(e)
     }
@@ -35,6 +35,7 @@ export async function getDataApi(params: any) {
   profitList = profitList.filter(item => params.maxOriginLevel ? item.originLevel <= params.maxOriginLevel : true)
   profitList = profitList.filter(item => params.minOriginLevel ? item.originLevel >= params.minOriginLevel : true)
   profitList = profitList.filter(item => params.minSellPrice ? item.productListWithPrice[0].price >= params.minSellPrice * 1e6 : true)
+  profitList = profitList.filter(item => params.maxSellPrice ? item.productListWithPrice[0].price <= params.maxSellPrice * 1e6 : true)
 
   const hasMinItemLevel = params.minItemLevel !== undefined && params.minItemLevel !== null && params.minItemLevel !== ""
   const hasMaxItemLevel = params.maxItemLevel !== undefined && params.maxItemLevel !== null && params.maxItemLevel !== ""
@@ -44,13 +45,14 @@ export async function getDataApi(params: any) {
   return handlePage(handleSort(handleSearch(profitList, params), params), params)
 }
 
-export function calcSuperEnhanceProfit() {
+/** noEscape=true 时逃逸策略固定为「不逃逸」（escapeLevel=-1，跌了也一路强化到目标） */
+export function calcSuperEnhanceProfit(noEscape = false) {
   const gameData = getGameDataApi()
   // 所有物品列表
   const list = Object.values(gameData.itemDetailMap)
   const profitList: EnhanceCalculator[] = []
 
-  const escapeLevels = [0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
+  const escapeLevels = noEscape ? [-1] : [0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]
   const originLevels = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
   const targetLevels = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18]
 

@@ -1,23 +1,28 @@
 import type { CalculatorConfig, Ingredient, Product } from "."
-import { getAlchemyDecomposeEnhancingEssenceOutput, getAlchemyEssenceDropTable, getAlchemyRareDropTable, getCoinifyExp, getCoinifyTimeCost, getDecomposeExp, getDecomposeTimeCost, getPriceOf, getTransmuteExp, getTransmuteTimeCost } from "@/common/apis/game"
+import { getAlchemyDecomposeEnhancingEssenceOutput, getAlchemyEssenceDropTable, getAlchemyRareDropTable, getCatalystAskOf, getCoinifyExp, getCoinifyTimeCost, getDecomposeExp, getDecomposeTimeCost, getPriceOf, getTransmuteExp, getTransmuteTimeCost } from "@/common/apis/game"
 import { getAlchemySuccessRatio, getBuffOf, getTeaIngredientList } from "@/common/apis/player"
 import { getTrans } from "@/locales"
 import { COIN_HRID } from "@/pinia/stores/game"
 import Calculator from "."
 
 export interface AlchemyCalculatorConfig extends CalculatorConfig {
-
+  /** false 时产物剔除稀有掉落与额外精华掉落（只保留主掉落表），默认 true */
+  includeRare?: boolean
 }
 
 export type AlchemyCatalyst = "prime_catalyst" | "catalyst_of_transmutation" | "catalyst_of_decomposition" | "catalyst_of_coinification"
 
 abstract class AlchemyCalculator extends Calculator {
+  /** 是否计入稀有掉落与额外精华掉落 */
+  readonly includeRare: boolean
+
   get actionLevel(): number {
     return this.item.itemLevel
   }
 
   constructor(config: AlchemyCalculatorConfig) {
     super({ ...config, action: "alchemy" })
+    this.includeRare = config.includeRare !== false
   }
 
   get catalystRatio(): number {
@@ -34,7 +39,8 @@ abstract class AlchemyCalculator extends Calculator {
   }
 
   get exp(): number {
-    return this.baseExp * (1 + getBuffOf(this.action, "Experience"))
+    const sr = this.successRate
+    return this.baseExp * (1 + getBuffOf(this.action, "Experience")) * (sr + 0.1 * (1 - sr))
   }
 }
 
@@ -92,7 +98,7 @@ export class TransmuteCalculator extends AlchemyCalculator {
         hrid: `/items/${this.catalyst}`,
         // 成功才会消耗
         count: this.successRate,
-        marketPrice: getPriceOf(`/items/${this.catalyst}`).ask
+        marketPrice: getCatalystAskOf(`/items/${this.catalyst}`)
       })
 
       list = list.concat(getTeaIngredientList(this))
@@ -112,19 +118,23 @@ export class TransmuteCalculator extends AlchemyCalculator {
         counterCount: (drop.itemHrid === this.item.hrid ? drop.maxCount : 0) * this.item.alchemyDetail.bulkMultiplier,
         rate: drop.dropRate,
         marketPrice: getPriceOf(drop.itemHrid).bid
-      })).concat(getAlchemyRareDropTable(this.item, getTransmuteTimeCost()).map(drop => ({
-        hrid: drop.itemHrid,
-        count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
-        counterCount: 0,
-        rate: drop.dropRate * (1 + this.rareRatio),
-        marketPrice: getPriceOf(drop.itemHrid).bid
-      }))).concat(getAlchemyEssenceDropTable(this.item, getTransmuteTimeCost()).map(drop => ({
-        hrid: drop.itemHrid,
-        count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
-        counterCount: 0,
-        rate: drop.dropRate * (1 + this.essenceRatio),
-        marketPrice: getPriceOf(drop.itemHrid).bid
-      })))
+      })).concat(this.includeRare
+        ? getAlchemyRareDropTable(this.item, getTransmuteTimeCost()).map(drop => ({
+            hrid: drop.itemHrid,
+            count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
+            counterCount: 0,
+            rate: drop.dropRate * (1 + this.rareRatio),
+            marketPrice: getPriceOf(drop.itemHrid).bid
+          }))
+        : []).concat(this.includeRare
+        ? getAlchemyEssenceDropTable(this.item, getTransmuteTimeCost()).map(drop => ({
+            hrid: drop.itemHrid,
+            count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
+            counterCount: 0,
+            rate: drop.dropRate * (1 + this.essenceRatio),
+            marketPrice: getPriceOf(drop.itemHrid).bid
+          }))
+        : [])
     }
     return this._productList
   }
@@ -193,7 +203,7 @@ export class DecomposeCalculator extends AlchemyCalculator {
           hrid: `/items/${this.catalyst}`,
           // 成功才会消耗
           count: this.successRate,
-          marketPrice: getPriceOf(`/items/${this.catalyst}`).ask
+          marketPrice: getCatalystAskOf(`/items/${this.catalyst}`)
         })
       }
 
@@ -219,17 +229,21 @@ export class DecomposeCalculator extends AlchemyCalculator {
         hrid: drop.itemHrid,
         count: drop.count * this.item.alchemyDetail.bulkMultiplier,
         marketPrice: getPriceOf(drop.itemHrid).bid
-      }))).concat(getAlchemyRareDropTable(this.item, getDecomposeTimeCost()).map(drop => ({
-        hrid: drop.itemHrid,
-        rate: drop.dropRate * (1 + this.rareRatio),
-        count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
-        marketPrice: getPriceOf(drop.itemHrid).bid
-      }))).concat(getAlchemyEssenceDropTable(this.item, getDecomposeTimeCost()).map(drop => ({
-        hrid: drop.itemHrid,
-        count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
-        rate: drop.dropRate * (1 + this.essenceRatio),
-        marketPrice: getPriceOf(drop.itemHrid).bid
-      })))
+      }))).concat(this.includeRare
+        ? getAlchemyRareDropTable(this.item, getDecomposeTimeCost()).map(drop => ({
+            hrid: drop.itemHrid,
+            rate: drop.dropRate * (1 + this.rareRatio),
+            count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
+            marketPrice: getPriceOf(drop.itemHrid).bid
+          }))
+        : []).concat(this.includeRare
+        ? getAlchemyEssenceDropTable(this.item, getDecomposeTimeCost()).map(drop => ({
+            hrid: drop.itemHrid,
+            count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
+            rate: drop.dropRate * (1 + this.essenceRatio),
+            marketPrice: getPriceOf(drop.itemHrid).bid
+          }))
+        : [])
       this._productList = list
     }
     return this._productList
@@ -284,7 +298,7 @@ export class CoinifyCalculator extends AlchemyCalculator {
         hrid: `/items/${this.catalyst}`,
         // 成功才会消耗
         count: this.successRate,
-        marketPrice: getPriceOf(`/items/${this.catalyst}`).ask
+        marketPrice: getCatalystAskOf(`/items/${this.catalyst}`)
       })
 
       list = list.concat(getTeaIngredientList(this))
@@ -301,17 +315,21 @@ export class CoinifyCalculator extends AlchemyCalculator {
         hrid: COIN_HRID,
         count: 1,
         marketPrice: this.item.sellPrice * 5 * this.item.alchemyDetail.bulkMultiplier
-      }].concat(getAlchemyRareDropTable(this.item, getCoinifyTimeCost()).map(drop => ({
-        hrid: drop.itemHrid,
-        count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
-        rate: drop.dropRate * (1 + this.rareRatio),
-        marketPrice: getPriceOf(drop.itemHrid).bid
-      }))).concat(getAlchemyEssenceDropTable(this.item, getCoinifyTimeCost()).map(drop => ({
-        hrid: drop.itemHrid,
-        count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
-        rate: drop.dropRate * (1 + this.essenceRatio),
-        marketPrice: getPriceOf(drop.itemHrid).bid
-      })))
+      }].concat(this.includeRare
+        ? getAlchemyRareDropTable(this.item, getCoinifyTimeCost()).map(drop => ({
+            hrid: drop.itemHrid,
+            count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
+            rate: drop.dropRate * (1 + this.rareRatio),
+            marketPrice: getPriceOf(drop.itemHrid).bid
+          }))
+        : []).concat(this.includeRare
+        ? getAlchemyEssenceDropTable(this.item, getCoinifyTimeCost()).map(drop => ({
+            hrid: drop.itemHrid,
+            count: (drop.minCount + drop.maxCount) / 2 / this.successRate,
+            rate: drop.dropRate * (1 + this.essenceRatio),
+            marketPrice: getPriceOf(drop.itemHrid).bid
+          }))
+        : [])
     }
     return this._productList
   }

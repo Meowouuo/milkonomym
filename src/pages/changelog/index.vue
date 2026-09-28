@@ -1,332 +1,607 @@
 <script setup lang="ts">
+import PolokikiBadge from "@@/components/PolokikiBadge/index.vue"
 import { useI18n } from "vue-i18n"
 
-const { locale } = useI18n()
+const { locale, t } = useI18n()
 </script>
 
 <template>
   <div class="changelog-page">
-    <!-- ================== v2.5.0 ================== -->
-    <template v-if="locale !== 'en'">
-      <h2>v2.5.0 -- 2026-08-16</h2>
+    <h2 class="changelog-header">
+      {{ t("更新日志") }}<PolokikiBadge />
+    </h2>
+    <!-- ================== v2.8.2 ================== -->
+    <details open>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.8.2 — 2026-09-27
+      </summary>
+      <div style="padding-left:16px">
+        <template v-if="locale !== 'en'">
+          <p><strong>一、市场税率 5% → 4%（随游戏更新，重要）</strong></p>
+          <ol>
+            <li>游戏已将市场税率从 5% 降至 4%，全站税后到手口径同步（×0.95 → ×0.96）：利润榜、强化、超炼、贤者、转化链等各页利润约上浮 1%。</li>
+            <li>强化计算 / 强化模拟 / 贤者页「税率%」锁定值改为 4，旧存值自动迁移，无需手动改；强化页「溢价率%」默认跟至 4（仍可自行调高）。</li>
+          </ol>
+          <p><strong>二、易用性</strong></p>
+          <ol>
+            <li>强化计算页「目标」档位行内编辑：点齿轮进入编辑，可增删档位（2~5 个），改完点页面空白处即保存；旧版残缺档位数据自动修复。</li>
+            <li>首页列设置弹窗独立滚动：小屏不再超出屏幕底部，列表可滚、不牵动背后页面。</li>
+            <li>「最高利润步骤」勾选开放到全部动作页，且只在同一动作内比较多条步数路径——物品不再因其他动作利润更高而被误删。</li>
+          </ol>
+          <p><strong>三、修复</strong></p>
+          <ol>
+            <li>英文 / 繁中界面：多步火车单被动作筛选整行滤掉（选 Crafting 看不到「N steps」行）；利润榜缓存增加语言维度，切换语言不再串数据。</li>
+            <li>预设「战斗房等级」刷新后丢失（保存成功但读取时被遗漏）。</li>
+            <li>神龛每级加成修正：精神（精华发现）2%→3%、稀有（稀有发现）1%→1.5%（据游戏内实测对账，力量/节奏/学者原本正确）。</li>
+          </ol>
+        </template>
+        <template v-else>
+          <p><strong>1. Market tax 5% → 4% (following the game update, important)</strong></p>
+          <ol>
+            <li>The game lowered the market tax from 5% to 4%; all after-tax figures across the site now use ×0.96 — profits on the leaderboard, enhance, super-alchemy, philosopher and transmute-chain pages are up by roughly 1%.</li>
+            <li>The locked "Tax Rate" on the enhance / super-enhance / philosopher pages is now 4; saved values migrate automatically. The enhance page's "Premium %" defaults to 4 (still adjustable).</li>
+          </ol>
+          <p><strong>2. Usability</strong></p>
+          <ol>
+            <li>Enhance page target levels: inline editing via the gear icon (2–5 slots), click anywhere outside to save; broken legacy slot data auto-repairs.</li>
+            <li>Homepage column-settings popover scrolls independently — no longer clipped on short screens, and scrolling no longer drags the page behind.</li>
+            <li>"Top-Profit Step" is now available on every action tab and only compares paths within the same action — items no longer vanish because another action is more profitable.</li>
+          </ol>
+          <p><strong>3. Fixes</strong></p>
+          <ol>
+            <li>EN / zh-TW UI: multi-step train rows were filtered out by the action select (no "N steps" rows under Crafting); the leaderboard cache is now locale-scoped.</li>
+            <li>Preset "Combat house level" was lost on refresh (saved but skipped when loading).</li>
+            <li>Shrine per-level bonuses corrected: Spirit (essence find) 2%→3%, Rare (rare find) 1%→1.5% (verified in-game; Power/Rhythm/Scholar were already correct).</li>
+          </ol>
+        </template>
+      </div>
+    </details>
 
-      <p><strong>一、配装对比重做（首页 + 打野页）</strong></p>
-      <ol>
-        <li>修复对比时数值不显示的问题：行数据改为直接使用计算实例，不再因展开丢失数据。</li>
-        <li>对比新增利润百分比：括号式显示（如 36.7M (-1.9%)），升绿降红；首页按利润/天，打野按利润/h。</li>
-        <li>对比数据改为每个预设全量抓取、行取各预设并集，避免部分物品整行缺失。</li>
-        <li>进入对比不再重新计算原预设，切换更快。</li>
-      </ol>
+    <hr>
+    <!-- ================== v2.8.1 ================== -->
+    <details open>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.8.1 — 2026-09-16
+      </summary>
+      <div style="padding-left:16px">
+        <template v-if="locale !== 'en'">
+          <p><strong>一、修复（重要）</strong></p>
+          <ol>
+            <li>强化分解 / 超级强化：修复更换配装后数据不更新（旧缓存锁死）与偶发页面崩溃；两页首轮计算均改为分片进行并显示进度条，不再卡死界面，同一会话内再次进入即时显示。</li>
+            <li>首页对比：修复预设列大量显示「—」——对比数据此前只取预设榜单的分页切片+搜索过滤（预设里时薪/利润率不达标的物品被滤掉），现改为全量比对，任意行都能显示预设对比数值；点击列头排序时列表崩溃/空白同步修复。</li>
+            <li>实时社区Buff：修复「实时数据未就绪」长时间不恢复的问题（空数据退避从 1 小时缩短为 3 分钟）；打开开关立即拉取一次。</li>
+            <li>贤者之石：来源买价改为全部强化等级取最低卖单，修复「市场实际买得到却显示无单」；价差改为省钱口径：市场买价 − 单颗净成本，绿色 = 自己做一颗比直接买省多少。</li>
+            <li>一键导入：剪贴板兜底读到无关内容时给出明确指引（原先误报「导入失败」）；「安装脚本」链接改为官方直链并高亮显示。</li>
+            <li>装备优化：修复选择采集专业（挤奶/采摘/伐木）点击「开始优化」时的页面崩溃；修复炼金在个别市场数据下显示 NaN 的问题。</li>
+            <li>一键导入：插件关闭后桥接缓存超过 2 小时自动失效，不再静默导入旧快照。</li>
+            <li>社区Buff：下线游戏已移除的「强化速度」条目；实时等级超过 12 小时无人上报自动过期，回退预设手动值。</li>
+            <li>全局错误提示附带源码位置，便于反馈问题。</li>
+            <li>一键导入/神龛：修复导入快照神龛缺座时被静默按等级0处理——现在会提示「神龛数据不完整（X/5）」；「数据升级」合并导入缺座时保留原预设值不再清零；根因（插件采集丢失）由插件 3.1.2 修复：神龛等级持久记忆补缺 + 公会面板长驻监听。</li>
+            <li>菜单：「打野工具」提升为独立入口，排在「贤者镜计算」上方。</li>
+          </ol>
+          <p><strong>二、装备优化新功能：预算上限</strong></p>
+          <ol>
+            <li>配置区新增「预算上限」（单位 M，百万金币）：单件支出超出预算的装备不再被推荐，全部超预算的部位显示「预算内无候选」。</li>
+            <li>开「卖旧装抵扣」时按净支出（成本−现装卖价）与预算比较；开「显示全部候选」可看到超预算项（灰显+「超预算」标记）。</li>
+          </ol>
+          <p><strong>三、首页新功能：最高利润步骤</strong></p>
+          <ol>
+            <li>锻造/制造/裁缝筛选区新增「最高利润步骤」勾选：同一产物的多条步数路径（1步买料 / 2步…N步火车）只保留利润/h 最高的一条。</li>
+            <li>品牌标识：首页版本号、公告与更新日志署名换用游戏同款小鸭图标 + 渐变绿名字。</li>
+          </ol>
+        </template>
+        <template v-else>
+          <p><strong>1. Fixes (important)</strong></p>
+          <ol>
+            <li>Enhance-decompose / Super enhance: results no longer locked to stale cache after switching presets; random render crashes fixed. Both pages now compute in chunks with a progress bar instead of freezing the page; instant on re-entry within the same session.</li>
+            <li>Homepage compare: fixed compare columns mostly showing "—" — compare data used to come from the preset leaderboard's page slice plus search filters (items under the rate threshold got filtered out of that preset's column); it now joins against the full list so every row shows the preset's numbers. Column-sort crash/blank also fixed.</li>
+            <li>Live community buffs: "data not ready" no longer sticks for an hour (empty-data backoff shortened to 3 minutes); toggling the switch triggers an immediate fetch.</li>
+            <li>Philosopher's stone: source buy prices now take the lowest ask across all enhancement levels (items were wrongly shown as "no listing"); the spread is now savings-caliber: market ask − net cost per stone (green = how much you save by crafting it yourself).</li>
+            <li>1-click import: clear guidance when the clipboard fallback picks up unrelated text (was misreported as "import failed"); install-script link switched to the official one and highlighted.</li>
+            <li>Equipment optimizer: fixed a crash when running optimization for gathering skills (milking / foraging / woodcutting); fixed occasional NaN display for alchemy under bad market data.</li>
+            <li>1-click import: the bridge cache expires after 2 hours once the userscript is off — no more silent imports of stale snapshots.</li>
+            <li>Community buffs: removed the "Enhancing Speed" entry retired from the game; live levels auto-expire after 12 hours without a report and fall back to manual preset values.</li>
+            <li>Global error toast now includes the source location for easier bug reports.</li>
+            <li>1-click import / shrines: a snapshot with missing shrines is no longer silently treated as level 0 — you now get an "incomplete (X/5)" hint, and merging into a preset keeps the old values for missing shrines. Root cause (capture loss in the userscript) is fixed in plugin 3.1.2: persistent shrine-level memory plus an always-on guild-panel watcher.</li>
+            <li>Menu: Jungle Tools promoted to a standalone entry, right above Sage Mirror Calc.</li>
+          </ol>
+          <p><strong>2. New: budget cap in the equipment optimizer</strong></p>
+          <ol>
+            <li>New "Budget cap" input (unit: M, millions): items whose per-piece spend exceeds the cap are no longer recommended; slots with every candidate over budget show "no candidate within budget".</li>
+            <li>With "sell old gear" on, the net spend (cost − old gear sale) is compared against the cap; "show all candidates" lists over-budget rows grayed out with a tag.</li>
+          </ol>
+          <p><strong>3. New: top-profit step on the homepage</strong></p>
+          <ol>
+            <li>New "Top-Profit Step" checkbox in the smithing/crafting/tailoring filter area: when a product has multiple step paths (1-step buy-materials / 2-step…N-step trains), only the one with the highest profit/h is kept.</li>
+            <li>Branding: homepage version tag, announcement and changelog signature now use the in-game duckling icon with the gradient-green name.</li>
+          </ol>
+        </template>
+      </div>
+    </details>
 
-      <p><strong>二、新增「炼金路径」页</strong></p>
-      <ol>
-        <li>物品多选网格 + 分类筛选（装备细分工具/配饰），支持自定义组与批量收藏。</li>
-        <li>催化剂选择直接显示图标：1 级为转化/分解/点金催化剂，2 级为至高催化剂；支持「自动」取最优组合与含税开关。</li>
-        <li>买/卖价侧一键切换，自动重算。</li>
-        <li>结果按每小时利润降序，可展开对比每种方式的催化剂、成功率与经验。</li>
-      </ol>
+    <hr>
+    <!-- ================== v2.8.0 ================== -->
+    <details open>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.8.0 — 2026-09-12
+      </summary>
+      <div style="padding-left:16px">
+        <template v-if="locale !== 'en'">
+          <p><strong>一、装备优化页大更新（本次主推）</strong></p>
+          <ol>
+            <li>「选择基准」：每个专业可从候选清单自选基准项目，替代固定的「利润前 N」；默认基准项目数 3 → 5。</li>
+            <li>基准候选扩充：锻造/制造/裁缝的候选加入全部基础材料（奶酪、木板、布料、皮革）；炼金按转化/分解/点金三种玩法分别提供候选，同一物品可按不同玩法分别勾选。</li>
+            <li>逐项目对比：展开任意建议行，查看每个基准项目换装前（橙）/换装后（绿）的利润或经验变化。</li>
+            <li>卖旧装抵扣（默认开）：回本按净支出 = 购买成本 − 现装卖价计算，成本列标注「卖旧装 −X」。</li>
+          </ol>
+          <p><strong>二、首页「对比」回归</strong></p>
+          <ol>
+            <li>恢复多预设对比（v2.7.0 曾移除）：选 2~5 个预设，利润排行的利润/天、利润/h、利润率、经验/h 按颜色并排显示。</li>
+            <li>经验/h 列新增点击排序。</li>
+          </ol>
+          <p><strong>三、贤者之石「买材料自制」</strong></p>
+          <ol>
+            <li>新开关：勾选后来源一律按「买材料自己做」的材料成本计价并重排排行榜（无制造配方的仍按市场买价）；买价列划线显示市场价对照。</li>
+          </ol>
+          <p><strong>四、社区Buff实时化（配合插件 3.1.0）</strong></p>
+          <ol>
+            <li>预设社区Buff卡片新增「实时社区Buff」开关：等级取自全服玩家实时上报（约 1 分钟刷新），无数据自动回退游戏快照。</li>
+          </ol>
+          <p><strong>五、强化计算：目标等级快捷按钮</strong></p>
+          <ol>
+            <li>目标框旁新增 3 个方形快捷按钮（默认 10/12/14，点击直接切换目标等级）；齿轮可自定义数值（1-20，本地记忆）。</li>
+          </ol>
+          <p><strong>六、修复</strong></p>
+          <ol>
+            <li>稀有发现勾选失效五处（制造/炼金/火车/收藏/手动炼金）。</li>
+            <li>一键导入装备档位：以实际穿戴为准；未穿且未拥有的特殊槽不再落入默认装备；主手/双手位生活工具正确导出（需插件 3.1.0）。</li>
+            <li>打野页分类筛选选「强化」查无结果的问题。</li>
+            <li>强化页：成品卖价显著偏离市场常见区间时给出提示。</li>
+          </ol>
+        </template>
+        <template v-else>
+          <p><strong>1. Gear Optimizer Overhaul (Highlight)</strong></p>
+          <ol>
+            <li>Baseline picker: choose your own baseline projects per skill (replaces fixed top-N); default N 3 → 5.</li>
+            <li>More candidates: all base materials (cheese / planks / cloth / leather) for the three crafting skills; alchemy candidates per playstyle (transmute / decompose / coinify).</li>
+            <li>Per-project compare: expand any suggestion to see before (orange) / after (green) profit or exp for every baseline project.</li>
+            <li>Sell-off deduction (on by default): payback = cost − old gear sell price.</li>
+          </ol>
+          <p><strong>2. Homepage Compare Is Back</strong></p>
+          <ol>
+            <li>N-way preset compare restored; exp/h column now sortable.</li>
+          </ol>
+          <p><strong>3. Philosopher's Stone: Craft From Materials</strong></p>
+          <ol>
+            <li>New toggle prices every source at material cost and re-ranks the leaderboard; market ask shown struck-through.</li>
+          </ol>
+          <p><strong>4. Live Community Buffs (plugin 3.1.0)</strong></p>
+          <ol>
+            <li>Optional live community buff levels (~1 min refresh), falls back to snapshot when unavailable.</li>
+          </ol>
+          <p><strong>5. Enhancer: quick target buttons</strong></p>
+          <ol>
+            <li>Three square quick buttons next to the target input (default 10/12/14); gear to customize (1-20, remembered).</li>
+          </ol>
+          <p><strong>6. Fixes</strong></p>
+          <ol>
+            <li>Rare-find toggle ignored in five spots (manufacture/alchemy/train/collections/manual alchemy).</li>
+            <li>Imported gear tiers now follow actually-worn items; empty special slots no longer leak default gear; main-hand/two-hand life tools exported (plugin 3.1.0).</li>
+            <li>Jungle category filter "Enhance" returned empty.</li>
+            <li>Enhancer warns when sell price strays far from the common market range.</li>
+          </ol>
+        </template>
+      </div>
+    </details>
 
-      <p><strong>三、预设弹窗改造</strong></p>
-      <ol>
-        <li>特殊装备（副手/头部/手部/脚部）改为图标行 + 强化等级角标。</li>
-        <li>项链/耳环/戒指/袋子紧凑展示。</li>
-        <li>手机端折叠表单；折叠标题显示五槽位图标与强化等级角标。</li>
-        <li>封印配置紧凑化。</li>
-      </ol>
+    <hr>
+    <!-- ================== v2.7.0 ================== -->
+    <details open>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.7.0 — 2026-09-06
+      </summary>
+      <div style="padding-left:16px">
+        <template v-if="locale !== 'en'">
+          <p><strong>一、报价税率修复（重要）</strong></p>
+          <ol>
+            <li>「给定工时费算报价」补税公式错误：游戏税从到账扣除（到账=卖价×0.95），想净得成本应 ÷0.95，旧版 ×1.05，每单少收 0.25%（星空12 一单约 4~5M）。</li>
+            <li>强化模拟页指导价曾双重计税（等效税率 10.53%），现修正为 5%。</li>
+            <li>2% 税时代误差仅万分之四故长期未被发现，感谢社区玩家反馈。</li>
+          </ol>
+          <p><strong>二、新增「贤者路径计算」页（炼金工具）</strong></p>
+          <ol>
+            <li>全市场扫描：转化会掉贤者之石的装备 + 分解必出的贤者首饰，按当前价格排行「单颗最便宜的获取途径」。</li>
+            <li>催化剂自动取最优档；无卖单来源自动按制造成本计入（带「自制」标记）；概率/副产物抵扣/价差等名词点开页面即有解释。</li>
+          </ol>
+          <p><strong>三、制造成本回退（新）</strong></p>
+          <ol>
+            <li>买价侧遇到无挂单物品时，自动按制造成本估算（按锻造/制造/裁缝配方递归折算原料），以前这类行会直接作废。</li>
+            <li>卖价侧保持「无单」不变；自定义价优先级最高。</li>
+          </ol>
+          <p><strong>四、列设置扩展</strong></p>
+          <ol>
+            <li>列设置齿轮扩展到首页、手动炼金、打野、超级打野、物品炼金路径对比：自选显示列、拖拽排序（本地记忆）。</li>
+          </ol>
+          <p><strong>五、首页排序</strong></p>
+          <ol>
+            <li>利润排行新增「利润/天」「利润/h」「利润/次」点击排序。</li>
+          </ol>
+          <p><strong>六、其他与修复</strong></p>
+          <ol>
+            <li>「炼金路径」更名「物品炼金路径对比」。</li>
+            <li>修复「制作装备」模式下装备成本残留旧手填值的问题（曾显示 1 且利润按 1 计算），现一律按配方成本计算（强化计算、贤者镜计算两页）。</li>
+          </ol>
+          <p><strong>七、新增「装备优化」页</strong></p>
+          <ol>
+            <li>选定预设后，按专业×部位（工具/衣服/裤子/披风/护符/特殊装备）扫描全市场装备及各强化等级，按性价比推荐最划算的升级——展示成本、平均提升、回本天数。</li>
+            <li>基准为该专业利润最高的前 N 个项目均值（可调）；护符按经验口径比较；性价比公式悬浮可见。</li>
+          </ol>
+          <p><strong>八、首页调整</strong></p>
+          <ol>
+            <li>移除首页「对比」功能（分解、强化分解、继承等工具页的对比保留）。</li>
+          </ol>
+        </template>
+        <template v-else>
+          <p><strong>1. Quote Tax Fix (Important)</strong></p>
+          <ol>
+            <li>Market tax is deducted from proceeds (×0.95); wage-based quotes now divide by 0.95 instead of ×1.05 — old quotes were 0.25% too low.</li>
+            <li>Sim-page guide price was double-taxed (effective 10.53%), now 5%.</li>
+          </ol>
+          <p><strong>2. New "Philosopher's Path Calculator" Page (Alchemy Tools)</strong></p>
+          <ol>
+            <li>Scans the whole market: equipment that transmutes into Philosopher's Stones plus jewelry that decomposes into one, ranked by cheapest net cost per stone.</li>
+            <li>Auto-best catalyst tier; no-listing sources priced at craft cost (tagged); in-page column guide.</li>
+          </ol>
+          <p><strong>3. Craft-Cost Fallback (New)</strong></p>
+          <ol><li>No-listing buy prices now fall back to craft cost (recipes resolved recursively); sell side still shows "No Orders"; manual prices take priority.</li></ol>
+          <p><strong>4. Column Settings</strong></p>
+          <ol><li>Extended to Dashboard / Manual Alchemy / Jungle / Super Jungle / Path Compare.</li></ol>
+          <p><strong>5. Dashboard Sorting</strong></p>
+          <ol><li>Profit per day / per hour / per action are now sortable.</li></ol>
+          <p><strong>6. Others & Fixes</strong></p>
+          <ol><li>Page renamed; fixed stale hand-entered gear price in "Craft Gear" mode (showed 1 and computed with 1) — now always uses recipe cost.</li></ol>
+          <p><strong>7. New "Gear Optimizer" Page</strong></p>
+          <ol>
+            <li>Pick a preset and it scans the whole market across professions × slots (tools / gear / charms / special equipment) at every enhancement level, ranking upgrades by value — cost, average gain, payback days.</li>
+            <li>Baselines average the top-N most profitable items per profession (adjustable); charms are compared by experience; hover the value column for the formula.</li>
+          </ol>
+          <p><strong>8. Dashboard</strong></p>
+          <ol><li>Removed the dashboard "Compare" feature (kept in Decompose / Enhance-Decompose / Inherit tools).</li></ol>
+        </template>
+      </div>
+    </details>
 
-      <p><strong>四、移动端适配</strong></p>
-      <ol>
-        <li>全站滚动条样式统一。</li>
-        <li>修复手机端侧栏子菜单展开异常（存量问题，需真机验证）。</li>
-        <li>弹窗、表格、分页等移动端布局优化。</li>
-      </ol>
-
-      <p><strong>五、其他</strong></p>
-      <ol>
-        <li>神龛稀有/精华概率微调：稀有 0.01→0.015，精华 0.02→0.03（UI 显示同步）。</li>
-      </ol>
-    </template>
-    <template v-else>
-      <h2>v2.5.0 -- 2026-08-16</h2>
-
-      <p><strong>1. Compare Rework (Dashboard + Jungle)</strong></p>
-      <ol>
-        <li>Fixed missing numbers in compare view: rows now use the calculator instances directly instead of spreading (which dropped prototype getters).</li>
-        <li>Added profit percentage in parentheses (e.g. 36.7M (-1.9%)), green up / red down; daily profit on the dashboard page, profit/h on the jungle page.</li>
-        <li>Compare now fetches full data per preset and unions the rows, so no items are missing.</li>
-        <li>Entering compare no longer recomputes the base preset — faster switching.</li>
-      </ol>
-
-      <p><strong>2. New "Alchemy Path" Page</strong></p>
-      <ol>
-        <li>Multi-select item grid with category filters (tools/accessories split under equipment); custom groups and batch favorites.</li>
-        <li>Catalyst picker now shows item icons directly: Lv.1 = Transmute/Decompose/Coinify catalysts, Lv.2 = Prime Catalyst; "Auto" picks the best combination, with a market-tax toggle.</li>
-        <li>One-click buy/sell price side switch with auto recalculation.</li>
-        <li>Results sorted by profit/h, expandable to compare each method's catalyst, success rate and exp.</li>
-      </ol>
-
-      <p><strong>3. Preset Dialog Improvements</strong></p>
-      <ol>
-        <li>Special equipment (off-hand/head/hands/feet) shown as an icon row with enhance-level badges.</li>
-        <li>Necklace/earrings/ring/pouch displayed compactly.</li>
-        <li>Collapsible form on mobile; the collapsed header shows 5-slot icons with enhance-level badges.</li>
-        <li>Compact seal configuration.</li>
-      </ol>
-
-      <p><strong>4. Mobile Adaptation</strong></p>
-      <ol>
-        <li>Unified scrollbar styling across the site.</li>
-        <li>Fixed the mobile sidebar submenu expansion issue (existing bug — verify on a real device).</li>
-        <li>Mobile layout improvements for dialogs, tables and pagination.</li>
-      </ol>
-
-      <p><strong>5. Others</strong></p>
-      <ol>
-        <li>Shrine probability tweaks: rare 0.01→0.015, essence 0.02→0.03 (UI display synced).</li>
-      </ol>
-    </template>
-
-    <!-- ================== v2.4.0 ================== -->
-    <template v-if="locale !== 'en'">
-      <h2>v2.4.0 -- 2026-08-13</h2>
-
-      <p><strong>一、市场税率调整</strong></p>
-      <ol>
-        <li>市场卖出税率由 2% 调整为 5%（税后因子 0.98 → 0.95）。</li>
-        <li>全链路同步：主计算器、强化分解、超级强化、排行榜、收藏夹五条计算路径统一应用新税率。</li>
-      </ol>
-
-      <p><strong>二、强化页面 UI 调整</strong></p>
-      <ol>
-        <li>强化分解 / 超级强化页的「税率」输入框已锁定为 5%（市场税率不再可配置，避免与全局常量冲突）。</li>
-        <li>修复超级强化页「溢价率」输入框绑定错误：原绑定指向市场税率，已改为真正的溢价率字段。</li>
-        <li>修复税率输入框残留 max=2 导致显示被钳制为 2% 的问题；贤者计算页税率同步补齐为 5%，旧配置自动迁移。</li>
-        <li>价格档位跟随游戏补丁细化：加减价档位增量缩小至原来的 1/10（如 1000 金物品 +1 档 = +5）。</li>
-        <li>修复强化分解 / 超级强化页切换预设后计算结果不刷新的问题。</li>
-      </ol>
-    </template>
-    <template v-else>
-      <h2>v2.4.0 -- 2026-08-13</h2>
-
-      <p><strong>1. Market Tax Adjustment</strong></p>
-      <ol>
-        <li>Market sell tax rate changed from 2% to 5% (after-tax factor 0.98 → 0.95).</li>
-        <li>Applied uniformly across all calculation paths: main calculator, enhancer, enhancest, leaderboard, and favorites.</li>
-      </ol>
-
-      <p><strong>2. Enhancement UI Changes</strong></p>
-      <ol>
-        <li>The "Tax Rate" input in enhancer/enhancest pages is locked to 5% (market tax is no longer user-configurable, avoiding conflicts with the global constant).</li>
-        <li>Fixed "Premium Rate" input binding in the enhancest page: was bound to market tax rate, now correctly bound to the premium rate field.</li>
-        <li>Fixed a leftover max=2 that clamped the tax rate display to 2%; philosopher page tax rate aligned to 5%, old configs auto-migrated.</li>
-        <li>Price tier steps follow the game patch: increment refined to 1/10 of the previous size (e.g. a 1,000-gold item now steps by 5).</li>
-        <li>Fixed calculations not refreshing after switching presets in enhancer/enhancest pages.</li>
-      </ol>
-    </template>
-
-    <!-- ================== v2.3.0 ================== -->
-    <template v-if="locale !== 'en'">
-      <h2>v2.3.0 -- 2026-08-08</h2>
-
-      <p><strong>一、哞卡社区 Buff</strong></p>
-      <ol>
-        <li>预设配置新增「哞卡（Moo Card）」社区 Buff，排在首位。</li>
-      </ol>
-
-      <p><strong>二、数据导出插件同步</strong></p>
-      <ol>
-        <li>导出脚本已适配哞卡数据，一键导入即可带哞卡等级。</li>
-        <li>安装/更新脚本后刷新页面生效。</li>
-      </ol>
-
-      <p><strong>三、脚本未安装通知</strong></p>
-      <ol>
-        <li>未安装导出脚本时，点击「一键导入」弹出下载指引，含直接下载和 GreasyFork 链接。</li>
-      </ol>
-
-      <p><strong>四、使用教程</strong></p>
-      <ol>
-        <li>安装脚本 → 刷新游戏页面和利润网 → 点击「一键导入」即可。</li>
-      </ol>
-      <p>📥 <a href="https://home.greasyfork.org.cn/zh-hans/info#/zh-CN/scripts/587094/detail" target="_blank" style="color:#409eff">安装脚本</a></p>
-
-      <p><strong>五、打赏</strong></p>
-      <p>感谢以下玩家的支持：</p>
-      <ul>
-        <li>SukiSukiDaiSuki（微信 ¥5.2）</li>
-        <li>Blue（¥188.88）</li>
-      </ul>
-      <p style="color:#e6a23c">
-        ⚠ 请在打赏时留下您的游戏昵称，这很重要！！
-      </p>
-    </template>
-    <template v-else>
-      <h2>v2.3.0 -- 2026-08-08</h2>
-
-      <p><strong>1. Moo Card Community Buff</strong></p>
-      <ol>
-        <li>New "Moo Card" community buff added to preset configuration, listed first.</li>
-      </ol>
-
-      <p><strong>2. Data Exporter Plugin Sync</strong></p>
-      <ol>
-        <li>Exporter script now includes moo card data for one-click import.</li>
-        <li>Install/update the script and refresh to take effect.</li>
-      </ol>
-
-      <p><strong>3. Script Not Installed Notification</strong></p>
-      <ol>
-        <li>When clicking "One-Click Import" without the exporter script, a download guide pops up.</li>
-      </ol>
-
-      <p><strong>4. How to Use</strong></p>
-      <ol>
-        <li>Install script → Refresh MilkyWay Idle and Milkonomy → Click "One-Click Import".</li>
-      </ol>
-      <p>📥 <a href="https://home.greasyfork.org.cn/zh-hans/info#/zh-CN/scripts/587094/detail" target="_blank" style="color:#409eff">Install Script</a></p>
-
-      <p><strong>5. Donations</strong></p>
-      <p>Thanks to the following players for your support:</p>
-      <ul>
-        <li>SukiSukiDaiSuki (WeChat ¥5.2)</li>
-        <li>Blue (¥188.88)</li>
-      </ul>
-      <p style="color:#e6a23c">
-        ⚠ Please include your in-game nickname when donating — this is important!
-      </p>
-    </template>
-
-    <!-- ==================== v2.2.2 ==================== -->
-    <template v-if="locale !== 'en'">
-      <h2>v2.2.2 — 2026-07-16</h2>
-
-      <p><strong>一、纯净火车修复</strong></p>
-      <ol>
-        <li>锻造补全制造链木材前缀：锤子、枪正常显示，不再被纯净火车误过滤。</li>
-        <li>纯净火车自动排除非材质链装备：护符、探照灯、火把、斗篷/披风。</li>
-        <li>制造基础材质修正："木板"→"原木"，匹配游戏实际原料名。</li>
-      </ol>
-
-      <p><strong>二、超级强化分解性能优化</strong></p>
-      <ol>
-        <li>计算结果持久化到本地存储，带市场数据时间戳校验。</li>
-        <li>同一批市场数据下打开页面秒开，不再每次重算数百万次循环。</li>
-      </ol>
-
-      <p><strong>三、一键导入</strong></p>
-      <ol>
-        <li>仪表盘新增"一键导入"按钮，从 Tampermonkey 脚本或剪贴板直接导入数据。</li>
-        <li>旧的"快速导入数据"按钮已移除，功能整合到顶部按钮栏。</li>
-      </ol>
-      <p><strong>四、使用教程</strong></p>
-      <ol>
-        <li>安装脚本（文末链接）→ 刷新利润网和 MilkyWay Idle → 点击"一键导入"即可。</li>
-      </ol>
-      <p>📥 <a href="https://home.greasyfork.org.cn/zh-hans/info#/zh-CN/scripts/587094/detail" target="_blank" style="color:#409eff">安装脚本</a></p>
-    </template>
-    <template v-else>
-      <h2>v2.2.2 — 2026-07-16</h2>
-
-      <p><strong>1. Pure Train Fixes</strong></p>
-      <ol>
-        <li>Smithing now collects crafting wood prefixes: hammers and spears display correctly in Pure Train mode.</li>
-        <li>Pure Train auto-excludes non-chain gear: charms, beacons, torches, capes/shrouds/cloaks.</li>
-        <li>Crafting base material corrected: "Plank" → "Log" to match actual in-game ingredient names.</li>
-      </ol>
-
-      <p><strong>2. Super Enhance + Decompose Performance</strong></p>
-      <ol>
-        <li>Results cached to localStorage with market data timestamp validation.</li>
-        <li>Instant page load when market data is unchanged; heavy computation only runs on data refresh.</li>
-      </ol>
-
-      <p><strong>3. One-Click Import</strong></p>
-      <ol>
-        <li>New "一键导入" button on dashboard: imports from Tampermonkey script or clipboard.</li>
-        <li>Old "Quick Import" button removed; functionality integrated into top action bar.</li>
-      </ol>
-      <p><strong>4. How to Use</strong></p>
-      <ol>
-        <li>Install script (link below) → Refresh Milkonomy + MilkyWay Idle → Click "一键导入".</li>
-      </ol>
-      <p>📥 <a href="https://home.greasyfork.org.cn/zh-hans/info#/zh-CN/scripts/587094/detail" target="_blank" style="color:#409eff">Import Script</a></p>
-    </template>
+    <hr>
+    <details open>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.6.0 — 2026-08-30
+      </summary>
+      <div style="padding-left:16px">
+        <!-- ================== v2.6.0 ================== -->
+        <template v-if="locale !== 'en'">
+          <p><strong>一、新增「超级炼金」页</strong></p>
+          <ol>
+            <li>全物品整链排行：分解/转化/点金自由组合，只保留比直卖划算的链。智能/最长链双模式。</li>
+            <li>「查看」三列详情：起始→中间产物→卖出（单价与每小时利润）。</li>
+            <li>炼金经验修正：失败也给10%经验；点金收益修复。</li>
+          </ol>
+          <p><strong>二、预设优化</strong></p>
+          <ol>
+            <li>战斗房等级（7间合计）；一键导入写入当前预设。</li>
+          </ol>
+          <p><strong>三、显示行列自定义</strong></p>
+          <ol>
+            <li>列设置齿轮+拖拽排序；产出筛选；更多排序列。</li>
+          </ol>
+          <p><strong>四、其他更新</strong></p>
+          <ol>
+            <li>稀有发现开关（四页）；催化剂价格独立设置；白板无挂单装备回退自制成本。</li>
+          </ol>
+          <p><strong>五、修复</strong></p>
+          <ol>
+            <li>强化分解不卡死；切预设刷新；经验排序；手机滚动。</li>
+          </ol>
+          <p><strong>六、感谢</strong></p>
+          <p>🎉 henxiayu（微信 ¥20）、包子（微信 ¥10）、Joey（智谱会员）</p>
+        </template>
+        <template v-else>
+          <p><strong>1. New "Super Alchemy" Page</strong></p>
+          <ol><li>Full-item chain ranking; Smart/Longest modes; 3-column detail view; exp & coinify fixes.</li></ol>
+          <p><strong>2. Preset Improvements</strong></p>
+          <ol><li>Combat house; import to current preset.</li></ol>
+          <p><strong>3. Custom Display & Columns</strong></p>
+          <ol><li>Column settings with drag; output filter; more sorting.</li></ol>
+          <p><strong>4. Others</strong></p>
+          <ol><li>Rare find toggle; catalyst price; craft cost fallback.</li></ol>
+          <p><strong>5. Fixes</strong></p>
+          <ol><li>No more freezing; preset refresh; exp sorting; mobile scroll.</li></ol>
+          <p><strong>6. Donations</strong></p>
+          <p>🎉 henxiayu / 包子 / Joey</p>
+        </template>
+      </div>
+    </details>
 
     <hr>
 
-    <!-- ==================== v2.2.1 ==================== -->
-    <template v-if="locale !== 'en'">
-      <h2>v2.2.1 — 2026-07-16</h2>
+    <details>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.5.0 — 2026-08-16
+      </summary>
+      <div style="padding-left:16px">
+        <!-- ================== v2.5.0 ================== -->
+        <template v-if="locale !== 'en'">
+          <p><strong>一、配装对比重做</strong></p>
+          <ol><li>修复数值不显示；新增利润百分比；全量并集行。</li></ol>
+          <p><strong>二、新增「炼金路径」页</strong></p>
+          <ol><li>物品多选+分类筛选+自定义组；催化剂图标；买卖价切换。</li></ol>
+          <p><strong>三、预设弹窗改造</strong></p>
+          <ol><li>特殊装备图标行+强化等级角标。</li></ol>
+          <p><strong>四、移动端适配</strong></p>
+          <ol><li>全站滚动条统一；手机侧栏修复。</li></ol>
+        </template>
+        <template v-else>
+          <p><strong>1. Compare Rework</strong></p>
+          <ol><li>Fixed missing numbers; profit percentage; full union rows.</li></ol>
+          <p><strong>2. New "Alchemy Path" Page</strong></p>
+          <ol><li>Multi-select grid; catalyst icons; buy/sell switch.</li></ol>
+          <p><strong>3. Preset Dialog</strong></p>
+          <ol><li>Icon rows with enhance badges.</li></ol>
+          <p><strong>4. Mobile</strong></p>
+          <ol><li>Scrollbar unify; sidebar fix.</li></ol>
+        </template>
+      </div>
+    </details>
 
-      <p><strong>一、利润网修复</strong></p>
-      <ol>
-        <li>排行榜缓存修复：切换买/卖价后排行榜价格不再锁死。此前缓存未区分价格模式，切换后仍返回旧数据。</li>
-        <li>丛林/打野缓存修复：同上，切换买/卖价后丛林和超级打野页面价格正确刷新。</li>
-        <li>制造纯火车修复：开启纯净火车并选择起始材质后不再空白。修复了起始材质过滤只检查链路第一步的 bug。</li>
-        <li>制造纯火车护符排除：纯净火车模式下自动排除护符，不再混入非材质链产物。</li>
-        <li>「排除装备」功能完善：排除装备时保留多步制作链条，只隐藏单步制造装备项。</li>
-      </ol>
+    <hr>
 
-      <p><strong>二、材质链改进</strong></p>
-      <ol>
-        <li>裁缝档位补全：皮革链新增 Lv90，布料链新增 Lv85。</li>
-        <li>「全部」模式上限提升：75→95，现在可看到高端档位。</li>
-        <li>纯净火车提示文字修正：「黄油、树枝、毛线」→「精通之油、洞察之枝、专精之线」。</li>
-      </ol>
+    <details>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.4.0 — 2026-08-13
+      </summary>
+      <div style="padding-left:16px">
+        <!-- ================== v2.4.0 ================== -->
+        <template v-if="locale !== 'en'">
+          <p><strong>一、市场税率调整</strong></p>
+          <ol><li>市场卖出税率由 2% 调整为 5%（税后因子 0.98 → 0.95）。</li></ol>
+          <p><strong>二、强化页面 UI 调整</strong></p>
+          <ol><li>税率锁定 5%；溢价率绑定修复；价格档位细化。</li></ol>
+        </template>
+        <template v-else>
+          <p><strong>1. Market Tax Adjustment</strong></p>
+          <ol><li>Tax rate changed from 2% to 5%.</li></ol>
+          <p><strong>2. Enhancement UI</strong></p>
+          <ol><li>Tax locked to 5%; premium rate fix; price tier refinement.</li></ol>
+        </template>
+      </div>
+    </details>
 
-      <p><strong>三、商店价格</strong></p>
-      <ol>
-        <li>新增商店固定售价硬编码兜底（38 个物品），覆盖基础工具/武器（5,000 金币）和实习护符（250,000 金币）。</li>
-      </ol>
+    <hr>
 
-      <p><strong>四、快速导入数据脚本教程</strong></p>
-      <ol>
-        <li>左侧栏新增图文教程页面，从脚本安装到数据导入细致教学。</li>
-      </ol>
+    <details>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.3.0 — 2026-08-08
+      </summary>
+      <div style="padding-left:16px">
+        <!-- ================== v2.3.0 ================== -->
+        <template v-if="locale !== 'en'">
+          <p><strong>一、哞卡社区 Buff</strong></p>
+          <ol><li>预设配置新增「哞卡」社区 Buff。</li></ol>
+          <p><strong>二、数据导出插件同步</strong></p>
+          <ol><li>导出脚本已适配哞卡数据。</li></ol>
+          <p><strong>三、脚本未安装通知</strong></p>
+          <ol><li>未安装导出脚本时弹出下载指引。</li></ol>
+        </template>
+        <template v-else>
+          <p><strong>1. Moo Card Community Buff</strong></p>
+          <ol><li>New moo card buff in preset.</li></ol>
+          <p><strong>2. Exporter Sync</strong></p>
+          <ol><li>Script now includes moo card data.</li></ol>
+          <p><strong>3. Not Installed Notification</strong></p>
+          <ol><li>Download guide when script missing.</li></ol>
+        </template>
+      </div>
+    </details>
 
-      <p><strong>五、导出脚本更新</strong></p>
-      <ol>
-        <li>茶叶自动导出：读取每个技能当前喝的茶，茶槽里有就导出，不跳过已过期茶叶。</li>
-        <li>修复神龛：读取个人等级而非公会等级。</li>
-        <li>房屋等级修正：当没修建房屋时会设置成0级，而非四级。</li>
-      </ol>
-    </template>
-    <template v-else>
-      <h2>v2.2.1 — 2026-07-16</h2>
+    <hr>
 
-      <p><strong>1. Profit Board Fixes</strong></p>
-      <ol>
-        <li>Leaderboard cache fix: switching buy/sell price mode no longer locks prices. Previously the cache did not differentiate price modes.</li>
-        <li>Jungle/Hunting cache fix: same as above, jungle and super hunting pages now refresh prices correctly.</li>
-        <li>Crafting Pure Train fix: no longer shows blank after enabling Pure Train with a starting material. Fixed a bug where tier filtering only checked the first step of the chain.</li>
-        <li>Crafting charm exclusion: charms are now auto-excluded in Pure Train mode.</li>
-        <li>Exclude Gear improved: multi-step crafting chains are preserved when excluding gear; only single-step crafted items are hidden.</li>
-      </ol>
+    <details>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.2.3 — 2026-08-08
+      </summary>
+      <div style="padding-left:16px">
+        <!-- ================== v2.2.3 ================== -->
+        <template v-if="locale !== 'en'">
+          <p><strong>一、哞卡社区 Buff</strong></p>
+          <ol>
+            <li>预设配置新增「哞卡（Moo Card）」社区 Buff，排在首位。</li>
+          </ol>
 
-      <p><strong>2. Material Chain Improvements</strong></p>
-      <ol>
-        <li>Tailoring tiers: Leather chain now has Lv90; Cloth chain now has Lv85.</li>
-        <li>"All" mode cap raised: 75 → 95, high-end tiers are now visible.</li>
-        <li>Pure Train hint text corrected: "Butter, Branch, Yarn" → "Oil of Mastery, Branch of Insight, Thread of Focus".</li>
-      </ol>
+          <p><strong>二、数据导出插件同步</strong></p>
+          <ol>
+            <li>导出脚本已适配哞卡数据，一键导入即可带哞卡等级。</li>
+            <li>安装/更新脚本后刷新页面生效。</li>
+          </ol>
 
-      <p><strong>3. Shop Prices</strong></p>
-      <ol>
-        <li>Added hardcoded shop prices as fallback (38 items), covering basic tools/weapons (5,000 gold) and Apprentice Charm (250,000 gold).</li>
-      </ol>
+          <p><strong>三、脚本未安装通知</strong></p>
+          <ol>
+            <li>未杀安装导出脚本时，点击「一键导入」弹出下载指引，含直接下载和 GreasyFork 链接。</li>
+          </ol>
 
-      <p><strong>4. Quick Import Tutorial</strong></p>
-      <ol>
-        <li>New tutorial page in sidebar with step-by-step guide from script installation to data import.</li>
-      </ol>
+          <p><strong>四、经验排序</strong></p>
+          <ol>
+            <li>首页经验/h列新增排序（降序/升序）。</li>
+            <li>打野工具经验/h列同步支持排序。</li>
+          </ol>
+        </template>
+        <template v-else>
+          <p><strong>1. Moo Card Community Buff</strong></p>
+          <ol>
+            <li>New "Moo Card" community buff added to preset configuration, listed first.</li>
+          </ol>
 
-      <p><strong>5. Export Script Updates</strong></p>
-      <ol>
-        <li>Tea auto-export: reads each skill's active tea; exports tea from slots without skipping expired teas.</li>
-        <li>Shrine fix: reads personal shrine level instead of guild level.</li>
-        <li>House level fix: sets to level 0 when no house is built, instead of level 4.</li>
-      </ol>
-    </template>
+          <p><strong>2. Data Exporter Plugin Sync</strong></p>
+          <ol>
+            <li>Exporter script now includes moo card data for one-click import.</li>
+            <li>Install/update the script and refresh to take effect.</li>
+          </ol>
+
+          <p><strong>3. Script Not Installed Notification</strong></p>
+          <ol>
+            <li>When clicking "One-Click Import" without the exporter script, a download guide pops up.</li>
+          </ol>
+
+          <p><strong>4. Experience Sorting</strong></p>
+          <ol>
+            <li>Dashboard exp/h column now supports sorting (descending/ascending).</li>
+            <li>Jungle tool exp/h column also supports sorting.</li>
+          </ol>
+        </template>
+      </div>
+    </details>
+
+    <hr>
+
+    <details>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.2.2 — 2026-07-16
+      </summary>
+      <div style="padding-left:16px">
+        <!-- ==================== v2.2.2 ==================== -->
+        <template v-if="locale !== 'en'">
+          <p><strong>一、纯净火车修复</strong></p>
+          <ol>
+            <li>锻造补全制造链木材前缀：锤子、枪正常显示，不再被纯净火车误过滤。</li>
+            <li>纯净火车自动排除非材质链装备：护符、探照灯、火把、斗篷/披风。</li>
+            <li>制造基础材质修正："木板"→"原木"，匹配游戏实际原料名。</li>
+          </ol>
+
+          <p><strong>二、超级强化分解性能优化</strong></p>
+          <ol>
+            <li>计算结果持久化到本地存储，带市场数据时间戳校验。</li>
+            <li>同一批市场数据下打开页面秒开，不再每次重算数百万次循环。</li>
+          </ol>
+
+          <p><strong>三、一键导入</strong></p>
+          <ol>
+            <li>仪表盘新增"一键导入"按钮，从 Tampermonkey 脚本或剪贴板直接导入数据。</li>
+            <li>旧的"快速导入数据"按钮已移除，功能整合到顶部按钮栏。</li>
+          </ol>
+          <p><strong>四、使用教程</strong></p>
+          <ol>
+            <li>安装脚本（文末链接）→ 刷新利润网和 MilkyWay Idle → 点击"一键导入"即可。</li>
+          </ol>
+          <p>📥 <a href="https://home.greasyfork.org.cn/zh-hans/info#/zh-CN/scripts/587094/detail" target="_blank" style="color:#409eff">安装脚本</a></p>
+        </template>
+        <template v-else>
+          <p><strong>1. Pure Train Fixes</strong></p>
+          <ol>
+            <li>Smithing now collects crafting wood prefixes: hammers and spears display correctly in Pure Train mode.</li>
+            <li>Pure Train auto-excludes non-chain gear: charms, beacons, torches, capes/shrouds/cloaks.</li>
+            <li>Crafting base material corrected: "Plank" → "Log" to match actual in-game ingredient names.</li>
+          </ol>
+
+          <p><strong>2. Super Enhance + Decompose Performance</strong></p>
+          <ol>
+            <li>Results cached to localStorage with market data timestamp validation.</li>
+            <li>Instant page load when market data is unchanged; heavy computation only runs on data refresh.</li>
+          </ol>
+
+          <p><strong>3. One-Click Import</strong></p>
+          <ol>
+            <li>New "一键导入" button on dashboard: imports from Tampermonkey script or clipboard.</li>
+            <li>Old "Quick Import" button removed; functionality integrated into top action bar.</li>
+          </ol>
+          <p><strong>4. How to Use</strong></p>
+          <ol>
+            <li>Install script (link below) → Refresh Milkonomy + MilkyWay Idle → Click "一键导入".</li>
+          </ol>
+          <p>📥 <a href="https://home.greasyfork.org.cn/zh-hans/info#/zh-CN/scripts/587094/detail" target="_blank" style="color:#409eff">Import Script</a></p>
+        </template>
+
+        <hr>
+      </div>
+    </details>
+
+    <hr>
+
+    <details>
+      <summary style="cursor:pointer;font-weight:bold;font-size:18px;margin:16px 0 8px">
+        v2.2.1 — 2026-07-16
+      </summary>
+      <div style="padding-left:16px">
+        <!-- ==================== v2.2.1 ==================== -->
+        <template v-if="locale !== 'en'">
+          <p><strong>一、利润网修复</strong></p>
+          <ol>
+            <li>排行榜缓存修复：切换买/卖价后排行榜价格不再锁死。此前缓存未区分价格模式，切换后仍返回旧数据。</li>
+            <li>丛林/打野缓存修复：同上，切换买/卖价后丛林和超级打野页面价格正确刷新。</li>
+            <li>制造纯火车修复：开启纯净火车并选择起始材质后不再空白。修复了起始材质过滤只检查链路第一步的 bug。</li>
+            <li>制造纯火车护符排除：纯净火车模式下自动排除护符，不再混入非材质链产物。</li>
+            <li>「排除装备」功能完善：排除装备时保留多步制作链条，只隐藏单步制造装备项。</li>
+          </ol>
+
+          <p><strong>二、材质链改进</strong></p>
+          <ol>
+            <li>裁缝档位补全：皮革链新增 Lv90，布料链新增 Lv85。</li>
+            <li>「全部」模式上限提升：75→95，现在可看到高端档位。</li>
+            <li>纯净火车提示文字修正：「黄油、树枝、毛线」→「精通之油、洞察之枝、专精之线」。</li>
+          </ol>
+
+          <p><strong>三、商店价格</strong></p>
+          <ol>
+            <li>新增商店固定售价硬编码兜底（38 个物品），覆盖基础工具/武器（5,000 金币）和实习护符（250,000 金币）。</li>
+          </ol>
+
+          <p><strong>四、快速导入数据脚本教程</strong></p>
+          <ol>
+            <li>左侧栏新增图文教程页面，从脚本安装到数据导入细致教学。</li>
+          </ol>
+
+          <p><strong>五、导出脚本更新</strong></p>
+          <ol>
+            <li>茶叶自动导出：读取每个技能当前喝的茶，茶槽里有就导出，不跳过已过期茶叶。</li>
+            <li>修复神龛：读取个人等级而非公会等级。</li>
+            <li>房屋等级修正：当没修建房屋时会设置成0级，而非四级。</li>
+          </ol>
+        </template>
+        <template v-else>
+          <p><strong>1. Profit Board Fixes</strong></p>
+          <ol>
+            <li>Leaderboard cache fix: switching buy/sell price mode no longer locks prices. Previously the cache did not differentiate price modes.</li>
+            <li>Jungle/Hunting cache fix: same as above, jungle and super hunting pages now refresh prices correctly.</li>
+            <li>Crafting Pure Train fix: no longer shows blank after enabling Pure Train with a starting material. Fixed a bug where tier filtering only checked the first step of the chain.</li>
+            <li>Crafting charm exclusion: charms are now auto-excluded in Pure Train mode.</li>
+            <li>Exclude Gear improved: multi-step crafting chains are preserved when excluding gear; only single-step crafted items are hidden.</li>
+          </ol>
+
+          <p><strong>2. Material Chain Improvements</strong></p>
+          <ol>
+            <li>Tailoring tiers: Leather chain now has Lv90; Cloth chain now has Lv85.</li>
+            <li>"All" mode cap raised: 75 → 95, high-end tiers are now visible.</li>
+            <li>Pure Train hint text corrected: "Butter, Branch, Yarn" → "Oil of Mastery, Branch of Insight, Thread of Focus".</li>
+          </ol>
+
+          <p><strong>3. Shop Prices</strong></p>
+          <ol>
+            <li>Added hardcoded shop prices as fallback (38 items), covering basic tools/weapons (5,000 gold) and Apprentice Charm (250,000 gold).</li>
+          </ol>
+
+          <p><strong>4. Quick Import Tutorial</strong></p>
+          <ol>
+            <li>New tutorial page in sidebar with step-by-step guide from script installation to data import.</li>
+          </ol>
+
+          <p><strong>5. Export Script Updates</strong></p>
+          <ol>
+            <li>Tea auto-export: reads each skill's active tea; exports tea from slots without skipping expired teas.</li>
+            <li>Shrine fix: reads personal shrine level instead of guild level.</li>
+            <li>House level fix: sets to level 0 when no house is built, instead of level 4.</li>
+          </ol>
+        </template>
+
+        <hr>
+      </div>
+    </details>
 
     <hr>
 

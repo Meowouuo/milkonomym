@@ -205,6 +205,10 @@ export interface ActionConfig {
   name?: string
   color?: string
   seals?: string[]
+  /** 战斗房等级合计（7间） */
+  combatHouseLevel?: number
+  /** 社区Buff跟随实时数据（搭 realtime.json 顺风车下发），开启后计算用最新等级 */
+  liveCommunityBuff?: boolean
   actionConfigMap: Map<Action, ActionConfigItem>
   specialEquimentMap: Map<Equipment, PlayerEquipmentItem>
   communityBuffMap: Map<CommunityBuff, CommunityBuffItem>
@@ -221,6 +225,8 @@ function loadLegacyConfig() {
     achievementBuffMap: new Map<AchievementTier, AchievementBuffItem>(),
     shrineBuffMap: new Map<ShrineType, ShrineBuffItem>(),
     seals: [] as string[],
+    combatHouseLevel: 0,
+    liveCommunityBuff: false,
     name: "0",
     color: "#11BF11"
   }
@@ -232,6 +238,8 @@ function loadLegacyConfig() {
     config.achievementBuffMap = new Map<AchievementTier, AchievementBuffItem>(Object.entries(data.achievementBuffMap || {}) as [AchievementTier, AchievementBuffItem][])
     config.shrineBuffMap = new Map<ShrineType, ShrineBuffItem>(Object.entries(data.shrineBuffMap || {}) as [ShrineType, ShrineBuffItem][])
     config.seals = normalizeSeals(data.seals || data.seal || extractLegacySealsFromActionConfigMap(config.actionConfigMap))
+    config.combatHouseLevel = data.combatHouseLevel
+    config.liveCommunityBuff = data.liveCommunityBuff
   } catch {
   }
   return config
@@ -252,6 +260,8 @@ function loadPresets(): ActionConfig[] {
         name: item.name,
         color: item.color,
         seals: normalizeSeals(item.seals || item.seal),
+        combatHouseLevel: item.combatHouseLevel,
+        liveCommunityBuff: item.liveCommunityBuff,
         actionConfigMap: new Map<Action, ActionConfigItem>(Object.entries(item.actionConfigMap || {}) as [Action, ActionConfigItem][]),
         specialEquimentMap: new Map<Equipment, PlayerEquipmentItem>(Object.entries(item.specialEquimentMap || {}) as [Equipment, PlayerEquipmentItem][]),
         communityBuffMap: new Map<CommunityBuff, CommunityBuffItem>(Object.entries(item.communityBuffMap || {}) as [CommunityBuff, CommunityBuffItem][]),

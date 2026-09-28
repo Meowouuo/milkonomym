@@ -4,7 +4,7 @@ import ItemIcon from "@@/components/ItemIcon/index.vue"
 import TieredPriceInput from "@@/components/TieredPriceInput/index.vue"
 
 import * as Format from "@@/utils/format"
-import { Star, StarFilled } from "@element-plus/icons-vue"
+import { Setting, Star, StarFilled } from "@element-plus/icons-vue"
 import { ElTable } from "element-plus"
 import { useRoute } from "vue-router"
 import { EnhanceCalculator } from "@/calculator/enhance"
@@ -12,8 +12,12 @@ import { ManufactureCalculator } from "@/calculator/manufacture"
 import { getStorageCalculatorItem } from "@/calculator/utils"
 import { WorkflowCalculator } from "@/calculator/workflow"
 import { getItemDetailOf, getMarketDataApi, getPriceOf, priceStepOf } from "@/common/apis/game"
+import { getCraftCostOf } from "@/common/apis/game/craft"
+import { guardedPriceOf, robustPriceOf } from "@/common/apis/game/priceGuard"
 import { getEquipmentList } from "@/common/apis/player"
 import { useMemory } from "@/common/composables/useMemory"
+import { SHOP_FIXED_PRICES } from "@/common/config"
+import { NO_TAX_FACTOR, SELL_TAX_FACTOR } from "@/common/constants/market"
 import { getEquipmentTypeOf } from "@/common/utils/game"
 import { useEnhancerStore } from "@/pinia/stores/enhancer"
 import { COIN_HRID, PRICE_STATUS_LIST, PriceStatus, useGameStore } from "@/pinia/stores/game"
@@ -25,6 +29,49 @@ const enhancerStore = useEnhancerStore()
 const gameStore = useGameStore()
 const { t } = useI18n()
 const route = useRoute()
+
+// 目标等级快捷按钮：2~6 个可配置数值（齿轮弹窗改，本地记忆）
+const quickTargets = useMemory("enhancer-quick-targets", [10, 12, 14])
+// 旧版本 persisted 值可能残缺（如只有 2 档），长度不足时回填默认
+if (quickTargets.value.length < 2) {
+  quickTargets.value = [10, 12, 14]
+}
+const quickTargetsDraft = ref<number[]>([...quickTargets.value])
+const quickTargetsEditing = ref(false)
+function toggleQuickTargetsEditing() {
+  quickTargetsEditing.value = !quickTargetsEditing.value
+  if (quickTargetsEditing.value) {
+    quickTargetsDraft.value = [...quickTargets.value]
+  } else {
+    applyQuickTargets()
+  }
+}
+function applyQuickTargets() {
+  const valid = quickTargetsDraft.value.map(Number).filter(v => Number.isFinite(v) && v >= 1 && v <= 20)
+  if (valid.length) quickTargets.value = valid
+}
+function addQuickTarget() {
+  if (quickTargetsDraft.value.length >= 5) return
+  const max = quickTargetsDraft.value.reduce((m, v) => Math.max(m, Number(v) || 0), 0)
+  quickTargetsDraft.value.push(Math.min(20, (max || 10) + 2))
+  applyQuickTargets()
+}
+function removeQuickTarget(i: number) {
+  if (quickTargetsDraft.value.length <= 2) return
+  quickTargetsDraft.value.splice(i, 1)
+  applyQuickTargets()
+}
+
+// 编辑态点行外任意处=确认退出（不必再点齿轮）
+const quickTargetRowRef = ref<HTMLElement>()
+function handleQuickTargetOutside(e: MouseEvent) {
+  if (!quickTargetsEditing.value) return
+  if (quickTargetRowRef.value?.contains(e.target as Node)) return
+  quickTargetsEditing.value = false
+  applyQuickTargets()
+}
+onMounted(() => document.addEventListener("mousedown", handleQuickTargetOutside))
+onUnmounted(() => document.removeEventListener("mousedown", handleQuickTargetOutside))
 
 function getQueryFirstString(value: unknown): string | undefined {
   if (typeof value === "string") return value
@@ -112,14 +159,14 @@ const costGuideExpandedRowKeys = ref<string[]>([])
 
 const defaultConfig = {
   hourlyRate: 5000000,
-  taxRate: 5,
+  taxRate: 4,
   enhanceLevel: 10
 }
 
-// Market tax rate: only 0% / 5%.
-// Internally we persist `ignoreTax` (0% => true, 5% => false).
+// Market tax rate: only 0% / 4%.
+// Internally we persist `ignoreTax` (0% => true, 4% => false).
 const marketTaxRate = computed<number>({
-  get: () => (enhancerStore.config.ignoreTax ? 0 : 5),
+  get: () => (enhancerStore.config.ignoreTax ? 0 : 4),
   set: (value: number) => {
     enhancerStore.config.ignoreTax = value === 0
   }
@@ -127,7 +174,8 @@ const marketTaxRate = computed<number>({
 
 onMounted(() => {
   applyPrefillFromRouteQuery({ selectItem: false })
-  enhancerStore.hrid && onSelect(getItemDetailOf(enhancerStore.hrid))
+  // 游戏数据未就绪时 getItemDetailOf 会抛错（数据为 null），等数据到了再恢复选择
+  if (gameStore.gameData && enhancerStore.hrid) onSelect(getItemDetailOf(enhancerStore.hrid))
 })
 
 watch(
@@ -188,22 +236,27 @@ interface CostGuideLeafRow {
 }
 
 const gearManufacture = ref(false)
-const bestManufacture = ref(false)
-const lastGearManufacture = ref(false)
+/** 制作装备口径：single=单步配方；best=最佳制作方案（最便宜获取路径）；train=火车（从链条最底端一路做到目标） */
+const manufactureMode = ref<"single" | "best" | "train">("single")
+/** 原料表/制作步骤默认折叠，点击展开 */
+const ingredientsExpanded = ref<string[]>([])
+const stepsExpanded = ref<string[]>([])
+// 价格步进×5：开启后每点一次上下箭头走 5 档（仍沿游戏锁死网格，不脱格）
+const stepperTimes5 = useMemory("enhancer-stepper-times-5", false)
 // Independent buy-price status for the two cost blocks (do NOT mutate global buyStatus)
 const gearCostBuyStatus = useMemory("enhancer-gear-cost-buy-status", PriceStatus.ASK)
 const enhancementCostBuyStatus = useMemory("enhancer-enhancement-cost-buy-status", PriceStatus.ASK)
 watch([
   () => manufactureIngredients.value,
   () => gearManufacture.value,
-  () => bestManufacture.value,
+  () => manufactureMode.value,
   () => gearCostBuyStatus.value,
   () => enhancementCostBuyStatus.value
 ], resetPrice, { deep: true })
 
 watch([
   () => gearManufacture.value,
-  () => bestManufacture.value,
+  () => manufactureMode.value,
   () => gearCostBuyStatus.value
 ], () => {
   recalcManufacturePlan()
@@ -223,13 +276,21 @@ function isDrink(hrid: string) {
   return getItemDetailOf(hrid).categoryHrid === "/item_categories/drink"
 }
 
+/** 无单回退采购价：商店固定价（实习护符等可无限买，仅强化页启用）→ 制造成本 */
+function fallbackBuyPrice(hrid: string, raw: number): number {
+  if (raw >= 0) return raw
+  const shop = SHOP_FIXED_PRICES[hrid]
+  if (typeof shop === "number") return shop
+  return getCraftCostOf(hrid)
+}
+
 function getGearCostOriginPrice(hrid: string, level?: number) {
   // Use `.ask` as "buying" price output; the selected status decides which market field is used.
-  return getPriceOf(hrid, level, gearCostBuyStatus.value, gameStore.sellStatus).ask
+  return fallbackBuyPrice(hrid, getPriceOf(hrid, level, gearCostBuyStatus.value, gameStore.sellStatus).ask)
 }
 
 function getEnhancementCostOriginPrice(hrid: string, level?: number) {
-  return getPriceOf(hrid, level, enhancementCostBuyStatus.value, gameStore.sellStatus).ask
+  return fallbackBuyPrice(hrid, getPriceOf(hrid, level, enhancementCostBuyStatus.value, gameStore.sellStatus).ask)
 }
 
 function calcSingleStepIngredients(hrid: string) {
@@ -262,7 +323,7 @@ function calcSingleStepIngredients(hrid: string) {
     : []
 }
 
-function calcBestManufacturePlan(hrid: string) {
+function calcBestManufacturePlan(hrid: string, trainOnly = false) {
   const item = getItemDetailOf(hrid)
   const projects: [string, Action][] = [
     [t("锻造"), "cheesesmithing"],
@@ -271,19 +332,24 @@ function calcBestManufacturePlan(hrid: string) {
   ]
 
   // Max steps for best manufacture plan search.
+  // - train（火车）: 始终走完整链条，从最底端做到目标
   // - charms: allow deeper chains by default
   // - non-charms:
   //   - if target gear is not buyable (-1): allow deeper chains to craft missing intermediates
   //   - otherwise keep it small for performance
-  const maxSteps = getEquipmentTypeOf(item) === "charm"
-    ? 7
-    : (getGearCostOriginPrice(hrid) === -1 ? 7 : 3)
+  const maxSteps = trainOnly
+    ? 10
+    : getEquipmentTypeOf(item) === "charm"
+      ? 7
+      : (getGearCostOriginPrice(hrid) === -1 ? 7 : 3)
 
   let best: {
     workflow: WorkflowCalculator
     outputPH: number
     costPerItem: number
   } | undefined
+  /** 火车模式用：按链长记录各自最便宜方案（各级底端买价已按市场/商店取低计入） */
+  const bestByLength = new Map<number, { workflow: WorkflowCalculator, outputPH: number, costPerItem: number }>()
 
   for (const [projectLast, actionLast] of projects) {
     for (const [project, action] of projects) {
@@ -349,10 +415,30 @@ function calcBestManufacturePlan(hrid: string) {
         }
         const costPerItem = costPH / outputPH
 
-        if (!best || costPerItem < best.costPerItem) {
+        // 火车：按链长先分组；最佳：直接取最便宜
+        const chainLen = wf.calculatorList.length
+        if (trainOnly) {
+          const prev = bestByLength.get(chainLen)
+          if (!prev || costPerItem < prev.costPerItem) {
+            bestByLength.set(chainLen, { workflow: wf, outputPH, costPerItem })
+          }
+        } else if (!best || costPerItem < best.costPerItem) {
           best = { workflow: wf, outputPH, costPerItem }
         }
       }
+    }
+  }
+
+  if (trainOnly) {
+    // 全链 vs 少一步（买底端再做）：底端商店/市场买价比自己造便宜时跳过第一步制造
+    const lengths = [...bestByLength.keys()].sort((a, b) => b - a)
+    if (!lengths.length) {
+      return undefined
+    }
+    best = bestByLength.get(lengths[0])!
+    const buyBase = lengths.length > 1 && lengths[1] === lengths[0] - 1 ? bestByLength.get(lengths[1]) : undefined
+    if (buyBase && buyBase.costPerItem < best.costPerItem) {
+      best = buyBase
     }
   }
 
@@ -426,7 +512,7 @@ function getOriginPricePlaceholder(row: Ingredient) {
 }
 
 function getCostGuidePriceText(price: number) {
-  return price < 0 ? "-1" : Format.number(price)
+  return price < 0 ? "无单" : Format.number(price)
 }
 
 function getCostGuideSourceLabel(source: CostGuideRow["source"], project?: string) {
@@ -639,7 +725,7 @@ function getLeafShareText(totalCost: number) {
 }
 
 function getLeafUnitCostText(row: CostGuideLeafRow) {
-  if (row.totalCost < 0 || row.count <= 0) return "-1"
+  if (row.totalCost < 0 || row.count <= 0) return "-"
   return Format.number(row.totalCost / row.count)
 }
 
@@ -743,7 +829,7 @@ function onProductPriceChange(value: number | undefined, oldValue: number | unde
     return
   }
 
-  const next = priceStepOf(base, high)
+  const next = stepPriceN(base as number, !!high)
   if (next <= 0) {
     _syncingProductPriceStep = true
     item.productPrice = -1
@@ -793,9 +879,70 @@ function resolveTierStep(value: number | undefined, oldValue: number | undefined
     return undefined
   }
 
-  const next = priceStepOf(base, high)
+  return stepPriceN(base as number, high)
+}
+
+/** 沿游戏锁死网格连走 n 档（每档重新取档位步长，跨档位自然过渡） */
+function stepPriceN(base: number, high: boolean): number {
+  const steps = stepperTimes5.value ? 5 : 1
+  let next = base
+  for (let i = 0; i < steps; i++) {
+    next = priceStepOf(next, high)
+  }
   return next > 0 ? next : -1
 }
+
+/** 成品当前市场的原始挂单价（ASK/BID 恒等换算，即未经左/右价状态处理），用作区间参照 */
+const productMarketPrice = computed(() => {
+  const item = currentItem.value
+  if (!item?.hrid) {
+    return null
+  }
+  const level = enhancerStore.enhanceLevel ?? defaultConfig.enhanceLevel
+  return getPriceOf(item.hrid, level, PriceStatus.ASK, PriceStatus.BID)
+})
+
+/** 与利润计算同口径的有效卖价：手填价优先，否则按全局卖出状态换算（含天价守卫） */
+const effectiveProductSellPrice = computed(() => {
+  const item = currentItem.value
+  const manual = item?.productPrice
+  if (typeof manual === "number" && manual > 0) {
+    return manual
+  }
+  if (!item?.hrid) {
+    return -1
+  }
+  const level = enhancerStore.enhanceLevel ?? defaultConfig.enhanceLevel
+  return guardedPriceOf(item.hrid, level, "bid")
+})
+
+/** 卖价超出当前市场挂单区间（最高买单价 ~ 最低卖单价）时提示，防止利润虚高 */
+const productPriceHint = computed<{ type: "warning" | "info", text: string } | null>(() => {
+  const market = productMarketPrice.value
+  const hrid = currentItem.value?.hrid
+  if (!market || !hrid) {
+    return null
+  }
+  const level = enhancerStore.enhanceLevel ?? defaultConfig.enhanceLevel
+  const robust = robustPriceOf(hrid, level, "bid")
+  if (robust.degraded) {
+    return { type: "warning", text: t("当前买单价异常偏高，已按近期参考价计算") }
+  }
+  const price = effectiveProductSellPrice.value
+  if (market.ask > 0 && price > market.ask) {
+    return { type: "warning", text: t("卖价已高于当前最低卖单价，需市价上行才可能成交，利润可能虚高") }
+  }
+  if (market.bid > 0 && price < market.bid) {
+    return { type: "warning", text: t("卖价已低于当前最高买单价，直接卖给买单更划算") }
+  }
+  if (robust.thin) {
+    return { type: "info", text: t("该等级近期无成交，挂单价可信度低") }
+  }
+  if (price > 0 && market.ask <= 0) {
+    return { type: "info", text: t("该等级当前无卖单挂价，卖价缺少市场参照") }
+  }
+  return null
+})
 
 function onGearIngredientPriceChange(row: Ingredient, value: number | undefined, oldValue: number | undefined) {
   if (_syncingGearIngredientPriceStep || row.hrid === COIN_HRID) return
@@ -854,13 +1001,13 @@ function recalcManufacturePlan() {
     return
   }
 
-  if (!bestManufacture.value) {
+  if (manufactureMode.value === "single") {
     manufactureIngredients.value = calcSingleStepIngredients(hrid)
     manufactureStepList.value = []
     return
   }
 
-  const bestPlan = calcBestManufacturePlan(hrid)
+  const bestPlan = calcBestManufacturePlan(hrid, manufactureMode.value === "train")
   if (!bestPlan) {
     // Fallback: still show single-step craft ingredients (so we don't fall back to market -1)
     // even if we failed to find a multi-step "best" plan.
@@ -874,6 +1021,10 @@ function recalcManufacturePlan() {
 
 function onSelect(item: ItemDetail) {
   if (!item) {
+    return
+  }
+  if (!gameStore.gameData || !gameStore.marketData) {
+    ElMessage.warning(t("数据尚未就绪，请稍候再试"))
     return
   }
   enhancerStore.config.hrid = item.hrid
@@ -951,6 +1102,10 @@ const results = computed(() => {
   if (!currentItem.value.hrid) {
     return []
   }
+  // 数据未就绪时价格/物品接口会抛错，先返回空等 watch 到数据后重算
+  if (!gameStore.gameData || !gameStore.marketData) {
+    return []
+  }
 
   // 预设依赖：计算器经 getBuffOf 等模块级变量读预设，Vue 追踪不到，显式读一次让预设切换能触发重算
   const playerConfig = usePlayerStore().config
@@ -958,7 +1113,7 @@ const results = computed(() => {
   console.time("[强化分解] results")
   const result = []
   const ignoreTax = !!enhancerStore.config.ignoreTax
-  const sellTaxFactor = ignoreTax ? 1 : 0.95
+  const sellTaxFactor = ignoreTax ? NO_TAX_FACTOR : SELL_TAX_FACTOR
   const enhanceLevel = enhancerStore.enhanceLevel ?? defaultConfig.enhanceLevel
   for (let i = 1; i <= enhanceLevel; ++i) {
     const calc = new EnhanceCalculator({
@@ -982,7 +1137,9 @@ const results = computed(() => {
     const totalCostNoHourly = matCost + gearCost
     let totalCost = totalCostNoHourly + (enhancerStore.hourlyRate ?? defaultConfig.hourlyRate) * (actions / calc.actionsPH)
     if (!ignoreTax) {
-      totalCost *= (1 + (enhancerStore.taxRate ?? defaultConfig.taxRate) / 100)
+      // 游戏税从到账里扣（到账=卖价×0.96），想净得 totalCost 挂单价须 ÷(1-税率)；
+      // 旧写法 ×(1+税率) 会少收 0.16%（×1.04×0.96=0.9984）
+      totalCost /= 1 - (enhancerStore.taxRate ?? defaultConfig.taxRate) / 100
     }
 
     const productPrice = typeof currentItem.value.productPrice === "number"
@@ -1064,8 +1221,6 @@ function resetPrice() {
   if (!currentItem.value.hrid) {
     return
   }
-  const modeChanged = lastGearManufacture.value !== gearManufacture.value
-  lastGearManufacture.value = gearManufacture.value
 
   // 触发一次computed
   currentItem.value = JSON.parse(JSON.stringify(currentItem.value))
@@ -1095,9 +1250,9 @@ function resetPrice() {
           return acc + (price * item.count)
         }, 0)
       : getGearCostOriginPrice(currentItem.value.hrid!)
-    if (modeChanged) {
-      currentItem.value.price = undefined
-    }
+    // 制作装备模式下价格由配方决定，输入框已禁用；遗留的手填值（如步进留下的 1）
+    // 会让输入框显示错值且计算按错价走，一律清空回退到 originPrice
+    currentItem.value.price = undefined
   }
 
   // After the deep clone above, `currentItem.protection` is no longer the same object
@@ -1194,9 +1349,17 @@ watch(menuVisible, (value) => {
                 <el-checkbox v-model="gearManufacture">
                   {{ t('制作装备') }}
                 </el-checkbox>
-                <el-checkbox v-model="bestManufacture" :disabled="!gearManufacture">
-                  {{ t('最佳制作方案') }}
-                </el-checkbox>
+                <el-radio-group v-model="manufactureMode" size="small" :disabled="!gearManufacture">
+                  <el-radio-button value="single">
+                    {{ t('单步配方') }}
+                  </el-radio-button>
+                  <el-radio-button value="best">
+                    {{ t('最佳制作方案') }}
+                  </el-radio-button>
+                  <el-radio-button value="train">
+                    {{ t('火车（从头做）') }}
+                  </el-radio-button>
+                </el-radio-group>
                 <el-button size="small" type="primary" plain :disabled="!currentItem?.hrid" @click="openCostGuide">
                   {{ t('成本指导价') }}
                 </el-button>
@@ -1212,44 +1375,9 @@ watch(menuVisible, (value) => {
               </div>
             </div>
           </template>
-          <template v-if="gearManufacture && manufactureIngredients.length">
-            <ElTable :data="manufactureIngredients" style="--el-table-border-color:none" :cell-style="{ padding: '0' }">
-              <el-table-column :label="t('物品')">
-                <template #default="{ row }">
-                  <ItemIcon :hrid="row.hrid" />
-                </template>
-              </el-table-column>
-              <el-table-column prop="count" :label="t('数量')">
-                <template #default="{ row }">
-                  {{ Format.number(row.count, 2) }}
-                </template>
-              </el-table-column>
-
-              <el-table-column :label="t('价格')" align="center" min-width="170">
-                <template #default="{ row }">
-                  <el-input-number
-                    v-if="row.hrid !== COIN_HRID"
-                    class="max-w-100%"
-                    style="width: 100%"
-                    v-model="row.price"
-                    :min="-1"
-                    :placeholder="getOriginPricePlaceholder(row)"
-                    :controls="true"
-                    controls-position="right"
-                    @change="(value, oldValue) => onGearIngredientPriceChange(row, value, oldValue)"
-                  />
-                </template>
-              </el-table-column>
-            </ElTable>
-            <el-divider class="mt-2 mb-2" />
-          </template>
-
-          <template v-if="gearManufacture && bestManufacture && manufactureStepList.length">
-            <div v-for="step in manufactureStepList" :key="step.title" class="mb-3">
-              <div class="text-xs color-gray-500 mb-1">
-                {{ step.title }}
-              </div>
-              <ElTable :data="step.ingredients" style="--el-table-border-color:none" :cell-style="{ padding: '0' }" size="small">
+          <el-collapse v-if="gearManufacture && manufactureIngredients.length" v-model="ingredientsExpanded">
+            <el-collapse-item :title="t('制作原料')" name="ingredients">
+              <ElTable :data="manufactureIngredients" style="--el-table-border-color:none" :cell-style="{ padding: '0' }">
                 <el-table-column :label="t('物品')">
                   <template #default="{ row }">
                     <ItemIcon :hrid="row.hrid" />
@@ -1257,13 +1385,52 @@ watch(menuVisible, (value) => {
                 </el-table-column>
                 <el-table-column prop="count" :label="t('数量')">
                   <template #default="{ row }">
-                    {{ Format.number(row.count, 4) }}
+                    {{ Format.number(row.count, 2) }}
+                  </template>
+                </el-table-column>
+
+                <el-table-column :label="t('价格')" align="center" min-width="170">
+                  <template #default="{ row }">
+                    <el-input-number
+                      v-if="row.hrid !== COIN_HRID"
+                      class="max-w-100%"
+                      style="width: 100%"
+                      v-model="row.price"
+                      :min="-1"
+                      :placeholder="getOriginPricePlaceholder(row)"
+                      :controls="true"
+                      controls-position="right"
+                      @change="(value, oldValue) => onGearIngredientPriceChange(row, value, oldValue)"
+                    />
                   </template>
                 </el-table-column>
               </ElTable>
-            </div>
-            <el-divider class="mt-2 mb-2" />
-          </template>
+            </el-collapse-item>
+          </el-collapse>
+          <el-divider v-if="gearManufacture && manufactureIngredients.length" class="mt-2 mb-2" />
+
+          <el-collapse v-if="gearManufacture && manufactureMode !== 'single' && manufactureStepList.length" v-model="stepsExpanded">
+            <el-collapse-item :title="t('制作步骤')" name="steps">
+              <div v-for="step in manufactureStepList" :key="step.title" class="mb-3">
+                <div class="text-xs color-gray-500 mb-1">
+                  {{ step.title }}
+                </div>
+                <ElTable :data="step.ingredients" style="--el-table-border-color:none" :cell-style="{ padding: '0' }" size="small">
+                  <el-table-column :label="t('物品')">
+                    <template #default="{ row }">
+                      <ItemIcon :hrid="row.hrid" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="count" :label="t('数量')">
+                    <template #default="{ row }">
+                      {{ Format.number(row.count, 4) }}
+                    </template>
+                  </el-table-column>
+                </ElTable>
+              </div>
+            </el-collapse-item>
+          </el-collapse>
+          <el-divider v-if="gearManufacture && manufactureMode !== 'single' && manufactureStepList.length" class="mt-2 mb-2" />
 
           <ElTable :data="[currentItem]" :show-header="false" style="--el-table-border-color:none">
             <el-table-column>
@@ -1418,7 +1585,7 @@ watch(menuVisible, (value) => {
                 <el-input-number
                   class="w-120px"
                   v-model="enhancerStore.config.taxRate"
-                  :step="5"
+                  :step="1"
                   :step-strictly="true"
                   :min="0"
                   :max="5"
@@ -1427,7 +1594,19 @@ watch(menuVisible, (value) => {
                 />
               </div>
             </el-tab-pane>
-            <el-tab-pane :label="t('成品售价')">
+            <el-tab-pane>
+              <template #label>
+                <span style="display: inline-flex; align-items: center; gap: 4px">
+                  {{ t('成品售价') }}
+                  <el-tooltip
+                    v-if="productPriceHint && productPriceHint.type === 'warning'"
+                    :content="productPriceHint.text"
+                    placement="top"
+                  >
+                    <span style="width: 6px; height: 6px; border-radius: 50%; background: #e6a23c; display: inline-block" />
+                  </el-tooltip>
+                </span>
+              </template>
               <div
                 class="grid w-full items-center gap-x-1"
                 :style="{ gridTemplateColumns: '44px minmax(0, 1fr)' }"
@@ -1447,6 +1626,30 @@ watch(menuVisible, (value) => {
                   @change="onProductPriceChange"
                 />
               </div>
+              <div class="mt-1">
+                <el-checkbox v-model="stepperTimes5" size="small">
+                  {{ t('步进×5') }}
+                </el-checkbox>
+              </div>
+              <div
+                v-if="currentItem?.hrid"
+                class="mt-2 font-size-12px"
+                style="color: #909399; line-height: 20px"
+              >
+                <div>
+                  {{ t('当前市场区间') }}：{{
+                    productMarketPrice && productMarketPrice.bid > 0 ? Format.money(productMarketPrice.bid) : t('无买单')
+                  }}
+                  ~
+                  {{ productMarketPrice && productMarketPrice.ask > 0 ? Format.money(productMarketPrice.ask) : t('无卖单') }}
+                </div>
+                <div
+                  v-if="productPriceHint"
+                  :style="{ color: productPriceHint.type === 'warning' ? '#e6a23c' : '#909399' }"
+                >
+                  {{ productPriceHint.text }}
+                </div>
+              </div>
 
               <div
                 class="grid w-full items-center gap-x-1 gap-y-1 mt-2"
@@ -1459,10 +1662,10 @@ watch(menuVisible, (value) => {
                   class="w-full"
                   style="width: 100%"
                   v-model="marketTaxRate"
-                  :step="5"
+                  :step="4"
                   :step-strictly="true"
                   :min="0"
-                  :max="5"
+                  :max="4"
                   controls-position="right"
                   :controls="true"
                   disabled
@@ -1553,22 +1756,81 @@ watch(menuVisible, (value) => {
           <el-divider class="mt-2 mb-2" />
 
           <ElTable :data="[currentItem]" :show-header="false" style="--el-table-border-color:none">
-            <el-table-column>
+            <el-table-column width="64">
               <template #default>
                 {{ t('目标') }}:
               </template>
             </el-table-column>
-            <el-table-column />
-            <el-table-column min-width="120" align="center">
+            <el-table-column align="center">
               <template #default>
-                <el-input-number
-                  class="max-w-100%"
-                  :max="20"
-                  :min="1"
-                  v-model="enhancerStore.config.enhanceLevel"
-                  :placeholder="Format.number(defaultConfig.enhanceLevel)"
-                  controls-position="right"
-                />
+                <div ref="quickTargetRowRef" class="flex items-center justify-between gap-1">
+                  <div class="flex flex-wrap items-center gap-1">
+                    <el-tooltip :content="t('自定义档位')" placement="top">
+                      <el-button
+                        size="small"
+                        text
+                        class="quick-target-btn"
+                        :class="{ 'is-active': quickTargetsEditing }"
+                        @click="toggleQuickTargetsEditing()"
+                      >
+                        <el-icon><Setting /></el-icon>
+                      </el-button>
+                    </el-tooltip>
+                    <template v-if="!quickTargetsEditing">
+                      <el-button
+                        v-for="(v, i) in quickTargets"
+                        :key="i"
+                        size="small"
+                        plain
+                        class="quick-target-btn"
+                        :class="{ 'is-active': enhancerStore.config.enhanceLevel === v }"
+                        @click="enhancerStore.config.enhanceLevel = v"
+                      >
+                        {{ v }}
+                      </el-button>
+                    </template>
+                    <template v-else>
+                      <div v-for="(v, i) in quickTargetsDraft" :key="i" class="quick-target-slot">
+                        <el-input-number
+                          v-model="quickTargetsDraft[i]!"
+                          :min="1"
+                          :max="20"
+                          size="small"
+                          style="width: 36px"
+                          :controls="false"
+                          @change="applyQuickTargets()"
+                        />
+                        <span
+                          v-if="quickTargetsDraft.length > 2"
+                          class="quick-target-close"
+                          :title="t('删除')"
+                          @click="removeQuickTarget(i)"
+                        >✕</span>
+                      </div>
+                    </template>
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <el-input-number
+                      v-if="!quickTargetsEditing"
+                      class="max-w-100% shrink-0"
+                      style="width: 76px"
+                      :max="20"
+                      :min="1"
+                      v-model="enhancerStore.config.enhanceLevel"
+                      :placeholder="Format.number(defaultConfig.enhanceLevel)"
+                      controls-position="right"
+                    />
+                    <el-button
+                      v-if="quickTargetsEditing && quickTargetsDraft.length < 5"
+                      size="small"
+                      plain
+                      class="quick-target-btn"
+                      @click="addQuickTarget()"
+                    >
+                      +
+                    </el-button>
+                  </div>
+                </div>
               </template>
             </el-table-column>
           </ElTable>
@@ -1777,5 +2039,49 @@ watch(menuVisible, (value) => {
       background-color: var(--v3-tagsview-contextmenu-hover-bg-color);
     }
   }
+}
+
+.quick-target-btn {
+  width: 28px;
+  padding: 0;
+}
+
+/* el-button 相邻默认 margin-left:12px，会把档位行挤成两行 */
+.quick-target-btn + .quick-target-btn {
+  margin-left: 0;
+}
+
+.quick-target-btn.is-active {
+  color: var(--el-color-primary);
+  border-color: var(--el-color-primary);
+}
+</style>
+
+<style lang="scss">
+/* 齿轮编辑态的槽位与 × 需要全局样式（弹窗/传送内容 scoped 作用不到） */
+.quick-target-slot {
+  position: relative;
+}
+
+.quick-target-slot .el-input__wrapper {
+  /* 组件库默认 0 15px 会把 44px 框里的数字挤到 14px 宽，必须强制覆盖 */
+  padding: 0 4px !important;
+}
+
+.quick-target-slot .el-input__inner {
+  padding: 0 2px;
+  text-align: center;
+}
+
+.quick-target-close {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--el-color-danger);
+  background: transparent;
+  cursor: pointer;
+  user-select: none;
 }
 </style>

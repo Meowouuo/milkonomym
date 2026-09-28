@@ -112,8 +112,8 @@ const search = ref("")
 const targetLevel = useMemory("philosopher-target-level", 18)
 const useBlessedInPhilosopher = useMemory("philosopher-use-blessed-in-philosopher", false)
 const hourlyRate = useMemory("philosopher-hourly-rate", 5000000)
-const taxRate = useMemory("philosopher-tax-rate", 5)
-if (taxRate.value === 2) taxRate.value = 5
+const taxRate = useMemory("philosopher-tax-rate", 4)
+if (taxRate.value === 2 || taxRate.value === 5) taxRate.value = 4
 const ignoreTax = useMemory("philosopher-ignore-tax", false)
 const currentItem = ref<CurrentItemState>({
   protection: {} as IngredientRow,
@@ -133,7 +133,7 @@ const equipmentList = computed(() => {
 })
 
 const marketTaxRate = computed<number>({
-  get: () => ignoreTax.value ? 0 : 5,
+  get: () => ignoreTax.value ? 0 : 4,
   set: (value: number) => {
     ignoreTax.value = value === 0
     taxRate.value = value
@@ -363,6 +363,8 @@ function recalcManufacturePlan() {
         return acc + price * item.count
       }, 0)
     : getGearCostOriginPrice(hrid)
+  // 制作装备模式下输入框禁用，清空遗留手填价（如步进留下的 1），显示与计算统一走 originPrice
+  currentItem.value.price = undefined
 }
 
 function buildNormalRows(target: number) {
@@ -389,7 +391,7 @@ function buildNormalRows(target: number) {
     const totalCostNoHourly = baseCost + matCost
     let totalCost = totalCostNoHourly + hourlyRate.value * (actions / calc.actionsPH)
     if (!ignoreTax.value) {
-      totalCost *= (1 + taxRate.value / 100)
+      totalCost /= 1 - taxRate.value / 100
     }
     const seconds = actions / calc.actionsPH * 3600
     rows.push({
@@ -468,7 +470,7 @@ function getBestPhilosopherPlan(target: number): PhilosopherPlan | null {
       const seconds = flow.totalActions / actionsPH * 3600
       let totalCost = totalCostNoHourly + hourlyRate.value * (flow.totalActions / actionsPH)
       if (!ignoreTax.value) {
-        totalCost *= (1 + taxRate.value / 100)
+        totalCost /= 1 - taxRate.value / 100
       }
 
       const materialRows: NodeMaterialRow[] = [{
@@ -735,6 +737,7 @@ watch(manufactureIngredients, () => {
         return acc + price * item.count
       }, 0)
     : getGearCostOriginPrice(currentItem.value.hrid!)
+  currentItem.value.price = undefined
 }, { deep: true })
 
 watch(targetLevel, (value) => {
@@ -1017,8 +1020,8 @@ const planChildren = computed(() => {
               class="w-120px"
               v-model="marketTaxRate"
               :min="0"
-              :max="5"
-              :step="5"
+              :max="4"
+              :step="4"
               :step-strictly="true"
               controls-position="right"
             />

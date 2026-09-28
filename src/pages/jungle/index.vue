@@ -10,6 +10,7 @@ import { useRouter } from "vue-router"
 import { getPriceOf } from "@/common/apis/game"
 import { getDataApi as getJungleDataApi } from "@/common/apis/jungle"
 import { getDataApi as getSuperJungleDataApi } from "@/common/apis/jungle/junglest"
+import { isDefaultEnhancingConfigActive } from "@/common/apis/player"
 import { useMemory } from "@/common/composables/useMemory"
 import { usePriceStatus } from "@/common/composables/usePriceStatus"
 import * as Format from "@/common/utils/format"
@@ -19,6 +20,7 @@ import { usePriceStore } from "@/pinia/stores/price"
 import ActionConfig from "../dashboard/components/ActionConfig.vue"
 import ActionDetail from "../dashboard/components/ActionDetail.vue"
 import ActionPrice from "../dashboard/components/ActionPrice.vue"
+import ColumnSettings from "../dashboard/components/ColumnSettings.vue"
 import GameInfo from "../dashboard/components/GameInfo.vue"
 import ManualPriceCard from "../dashboard/components/ManualPriceCard.vue"
 import PriceStatusSelect from "../dashboard/components/PriceStatusSelect.vue"
@@ -57,6 +59,36 @@ watch(showCompareSelector, (val) => {
 const ldSearchFormRef = ref<FormInstance | null>(null)
 const dataSource = useMemory("jungle-data-source", { type: "jungle" })
 
+// 列设置：勾选显隐 + 拖拽排序（与首页/炼金同款）
+const jgColumnVisible = useMemory("jg-column-visible", {
+  action: true,
+  profitPH: true,
+  expPH: true,
+  costPH: true,
+  risk: true,
+  profitRate: true,
+  profitPP: true,
+  sellPrice: true,
+  vol: true,
+  expTime: true,
+  toEnhancer: true,
+  detail: true
+} as Record<string, boolean>)
+const jgColumnOrder = useMemory("jg-column-order", [
+  "action",
+  "profitPH",
+  "expPH",
+  "costPH",
+  "risk",
+  "profitRate",
+  "profitPP",
+  "sellPrice",
+  "vol",
+  "expTime",
+  "toEnhancer",
+  "detail"
+])
+
 const ldSearchData = useMemory("jungle-leaderboard-search-data", {
   name: "",
   project: "",
@@ -72,6 +104,9 @@ const ldSearchData = useMemory("jungle-leaderboard-search-data", {
   onlySkillingTool: false,
   onlySkillingGear: false,
   maxItemLevel: undefined,
+  minSellPrice: undefined,
+  maxSellPrice: undefined,
+  noEscape: false,
   bestManufacture: false,
   exactLevelValues: [5, 7, 10, 12, 15],
   exactLevelActive: [false, false, false, false, false]
@@ -426,6 +461,14 @@ function formatExpectedTime(row: any) {
 
 const onPriceStatusChange = usePriceStatus("jungle-price-status")
 
+// 玩家反馈「显示的强化属性不是本人的」：配置仍是默认预设时提醒，不静默。
+// isDefaultEnhancingConfigActive 读的是模块级配置，Vue 追踪不到——
+// 显式读一次 store 配置建立响应式依赖，预设加载/切换后才会重算
+const showDefaultConfigWarning = computed(() => {
+  void usePlayerStore().config
+  return isDefaultEnhancingConfigActive()
+})
+
 function escapeRegExp(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
@@ -457,7 +500,7 @@ const isSuperJungle = computed(() => dataSource.value.type === "junglest")
     <div class="game-info">
       <GameInfo />
       <div>
-        <ActionConfig :actions="['enhancing', 'cheesesmithing', 'crafting', 'tailoring']" :equipments="['off_hand', 'hands', 'neck', 'earrings', 'ring', 'pouch']" @toggle-compare="!isComparing && (showCompareSelector = !showCompareSelector)" />
+        <ActionConfig :show-compare="true" :actions="['enhancing', 'cheesesmithing', 'crafting', 'tailoring']" :equipments="['off_hand', 'hands', 'neck', 'earrings', 'ring', 'pouch']" @toggle-compare="!isComparing && (showCompareSelector = !showCompareSelector)" />
       </div>
       <PriceStatusSelect
         @change="onPriceStatusChange"
@@ -476,6 +519,13 @@ const isSuperJungle = computed(() => dataSource.value.type === "junglest")
         </el-radio-group>
       </div>
     </div>
+    <el-alert
+      v-if="showDefaultConfigWarning"
+      type="warning"
+      :closable="true"
+      class="mb-2"
+      :title="t('强化专业未配置本人数据：当前按默认预设计算（工具+10/等级100/房屋4/默认特殊装备），显示的强化属性不是你的。请到首页「一键导入」。')"
+    />
     <el-row :gutter="20" class="row">
       <el-col :xs="24" :sm="24" :md="24" :lg="24" :xl="16">
         <el-card>
@@ -548,6 +598,10 @@ const isSuperJungle = computed(() => dataSource.value.type === "junglest")
                 <el-input-number style="width:80px" v-model="ldSearchData.minSellPrice" placeholder="0" clearable @change="handleSearchLD" :controls="false" />&nbsp;M
               </el-form-item>
 
+              <el-form-item :label="`${t('售价')} ≤`">
+                <el-input-number style="width:80px" v-model="ldSearchData.maxSellPrice" placeholder="" clearable @change="handleSearchLD" :controls="false" />&nbsp;M
+              </el-form-item>
+
               <div style="display:flex; flex-wrap:nowrap; align-items:baseline;">
                 <el-form-item :label="`${t('物品等级')} ≥`">
                   <el-input-number style="width:80px" v-model="ldSearchData.minItemLevel" placeholder="0" clearable @change="handleSearchLD" :controls="false" />
@@ -564,6 +618,14 @@ const isSuperJungle = computed(() => dataSource.value.type === "junglest")
                 <el-checkbox v-model="ldSearchData.bestManufacture" @change="handleSearchLD">
                   {{ t('最佳制作方案') }}
                 </el-checkbox>
+              </el-form-item>
+
+              <el-form-item v-if="isSuperJungle">
+                <el-tooltip :content="t('不逃逸：失败跌级后不停止，一路强化到目标等级（默认关闭=自动选最优逃逸等级）')" placement="top">
+                  <el-checkbox v-model="ldSearchData.noEscape" @change="handleSearchLD">
+                    {{ t('不逃逸') }}
+                  </el-checkbox>
+                </el-tooltip>
               </el-form-item>
 
               <el-form-item>
@@ -659,6 +721,30 @@ const isSuperJungle = computed(() => dataSource.value.type === "junglest")
             </div>
             <el-table :data="displayLeaderboardData" v-loading="loadingLD" @sort-change="handleSortLD">
               <el-table-column width="54">
+                <template #header>
+                  <ColumnSettings
+                    :columns="[
+                      { key: 'action', label: '动作' },
+                      { key: 'profitPH', label: '利润 / h' },
+                      { key: 'expPH', label: '经验 / h' },
+                      { key: 'costPH', label: '损耗 / h' },
+                      { key: 'risk', label: '风险系数' },
+                      { key: 'profitRate', label: '利润率' },
+                      { key: 'profitPP', label: '利润 / 次' },
+                      { key: 'sellPrice', label: '售价' },
+                      { key: 'vol', label: '成交量(1h)' },
+                      { key: 'expTime', label: '期望耗时' },
+                      { key: 'toEnhancer', label: '到强化工具中查看' },
+                      { key: 'detail', label: '详情' },
+                    ]" :visible="jgColumnVisible" :order="jgColumnOrder"
+                  >
+                    <template #reference>
+                      <el-icon :size="18" style="cursor: pointer" :title="t('列设置')">
+                        <Setting />
+                      </el-icon>
+                    </template>
+                  </ColumnSettings>
+                </template>
                 <template #default="{ row }">
                   <ItemIcon :hrid="row.hrid" />
                 </template>
@@ -680,155 +766,156 @@ const isSuperJungle = computed(() => dataSource.value.type === "junglest")
                   </div>
                 </template>
               </el-table-column>
-              <el-table-column prop="project" :label="t('动作')" />
+              <template v-for="colKey in jgColumnOrder" :key="colKey">
+                <el-table-column v-if="colKey === 'action' && jgColumnVisible.action" prop="project" :label="t('动作')" />
 
-              <el-table-column prop="result.profitPH" :label="t('利润 / h')" align="center" min-width="120" sortable="custom" :sort-orders="['ascending', null]">
-                <template #default="{ row }">
-                  <span :class="row.hasManualPrice ? 'manual' : ''">
-                    <template v-if="isComparing && row._compareData?.length">
-                      <template v-for="(cd, ci) in row._compareData" :key="ci">
-                        <span v-if="cd">
-                          <span v-if="ci > 0"> / </span>
-                          <span :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.profitPHFormat }}</span>
-                          <span
-                            v-if="compareDeltaOf(row, ci)"
-                            :style="{ color: compareDeltaOf(row, ci)!.positive ? '#16ab1b' : '#f56c6c', fontSize: '12px' }"
-                          >
-                            ({{ compareDeltaOf(row, ci)!.text }})
+                <el-table-column v-if="colKey === 'profitPH' && jgColumnVisible.profitPH" prop="result.profitPH" :label="t('利润 / h')" align="center" min-width="120" sortable="custom" :sort-orders="['ascending', null]">
+                  <template #default="{ row }">
+                    <span :class="row.hasManualPrice ? 'manual' : ''">
+                      <template v-if="isComparing && row._compareData?.length">
+                        <template v-for="(cd, ci) in row._compareData" :key="ci">
+                          <span v-if="cd">
+                            <span v-if="ci > 0"> / </span>
+                            <span :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.profitPHFormat }}</span>
+                            <span
+                              v-if="compareDeltaOf(row, ci)"
+                              :style="{ color: compareDeltaOf(row, ci)!.positive ? '#16ab1b' : '#f56c6c', fontSize: '12px' }"
+                            >
+                              ({{ compareDeltaOf(row, ci)!.text }})
+                            </span>
                           </span>
-                        </span>
+                        </template>
                       </template>
-                    </template>
-                    <span v-else style="word-break:break-all;display:inline-block;max-width:180px">{{ row.result.profitPHFormat }}</span>&nbsp;
-                  </span>
-                  <el-link type="primary" :icon="Edit" @click="setPrice(row)">
-                    {{ t('自定义') }}
-                  </el-link>
-                </template>
-              </el-table-column>
+                      <span v-else style="word-break:break-all;display:inline-block;max-width:180px">{{ row.result.profitPHFormat }}</span>&nbsp;
+                    </span>
+                    <el-link type="primary" :icon="Edit" @click="setPrice(row)">
+                      {{ t('自定义') }}
+                    </el-link>
+                  </template>
+                </el-table-column>
 
-              <el-table-column prop="result.expPH" min-width="120" :label="t('经验 / h')" align="center" sortable="custom" :sort-orders="['descending', 'ascending', null]">
-                <template #default="{ row }">
-                  <div style="display: flex; justify-content: center; align-items: center; gap: 5px">
-                    <div>{{ row.result.expPHFormat }}</div>
-                    <el-tooltip v-if="row.expList?.length > 1" placement="top" effect="light">
-                      <template #content>
-                        <div v-for="(item, i) in row.expList" :key="i" style="display: flex; gap:10px">
-                          <div>
-                            {{ t(item.action) }}
+                <el-table-column v-if="colKey === 'expPH' && jgColumnVisible.expPH" prop="result.expPH" min-width="120" :label="t('经验 / h')" align="center" sortable="custom" :sort-orders="['descending', 'ascending', null]">
+                  <template #default="{ row }">
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 5px">
+                      <div>{{ row.result.expPHFormat }}</div>
+                      <el-tooltip v-if="row.expList?.length > 1" placement="top" effect="light">
+                        <template #content>
+                          <div v-for="(item, i) in row.expList" :key="i" style="display: flex; gap:10px">
+                            <div>
+                              {{ t(item.action) }}
+                            </div>
+                            <div>
+                              {{ item.expPHFormat }}
+                            </div>
                           </div>
-                          <div>
-                            {{ item.expPHFormat }}
-                          </div>
-                        </div>
+                        </template>
+                        <el-icon>
+                          <Warning />
+                        </el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                </el-table-column>
+
+                <el-table-column v-if="colKey === 'costPH' && jgColumnVisible.costPH" :label="t('损耗 / h')" align="center">
+                  <template #default="{ row }">
+                    {{ row.result.cost4EnhancePHFormat }}
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'risk' && jgColumnVisible.risk" align="center" min-width="120">
+                  <template #header>
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 5px">
+                      <div>{{ t('风险系数') }}</div>
+                      <el-tooltip placement="top" effect="light">
+                        <template #content>
+                          {{ t('损耗 ÷ 利润') }}
+                        </template>
+                        <el-icon>
+                          <Warning />
+                        </el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <template #default="{ row }">
+                    <!-- 7以上是红色，5以下是绿色 -->
+                    <span
+                      :class="{
+                        error: row.result.risk > 7,
+                        success: row.result.risk < 5,
+                      }"
+                    >
+                      {{ row.result.profitPH > 0 ? row.result.riskFormat : '' }}
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'profitRate' && jgColumnVisible.profitRate" prop="result.profitRate" align="center" :label="t('利润率')" sortable="custom" :sort-orders="['descending', 'ascending', null]">
+                  <template #default="{ row }">
+                    <span :class="row.hasManualPrice ? 'manual' : ''">
+                      <template v-if="isComparing && row._compareData?.length">
+                        <template v-for="(cd, ci) in row._compareData" :key="ci">
+                          <span v-if="cd">
+                            <span v-if="ci > 0"> / </span>
+                            <span :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.profitRateFormat }}</span>
+                          </span>
+                        </template>
                       </template>
-                      <el-icon>
-                        <Warning />
-                      </el-icon>
-                    </el-tooltip>
-                  </div>
-                </template>
-              </el-table-column>
+                      <span v-else>{{ row.result.profitRateFormat }}</span>&nbsp;
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'profitPP' && jgColumnVisible.profitPP" align="center" min-width="120">
+                  <template #header>
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 5px">
+                      <div>{{ t('利润 / 次') }}</div>
+                      <el-tooltip placement="top" effect="light">
+                        <template #content>
+                          {{ t('单次动作产生的利润。') }}
+                          <br>
+                          {{ t('#多步动作利润提示') }}
+                          <br>
+                          {{ t('#多步动作利润举例') }}
+                        </template>
+                        <el-icon>
+                          <Warning />
+                        </el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <template #default="{ row }">
+                    <span :class="row.hasManualPrice ? 'manual' : ''">
+                      {{ row.result.profitPPFormat }}&nbsp;
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'sellPrice' && jgColumnVisible.sellPrice" :label="t('售价')" align="center">
+                  <template #default="{ row }">
+                    <span>
+                      {{ Format.price(row.calculator.productListWithPrice[0].price) }}
+                    </span>
+                  </template>
+                </el-table-column>
 
-              <el-table-column :label="t('损耗 / h')" align="center">
-                <template #default="{ row }">
-                  {{ row.result.cost4EnhancePHFormat }}
-                </template>
-              </el-table-column>
-              <el-table-column align="center" min-width="120">
-                <template #header>
-                  <div style="display: flex; justify-content: center; align-items: center; gap: 5px">
-                    <div>{{ t('风险系数') }}</div>
-                    <el-tooltip placement="top" effect="light">
-                      <template #content>
-                        {{ t('损耗 ÷ 利润') }}
-                      </template>
-                      <el-icon>
-                        <Warning />
-                      </el-icon>
-                    </el-tooltip>
-                  </div>
-                </template>
-                <template #default="{ row }">
-                  <!-- 7以上是红色，5以下是绿色 -->
-                  <span
-                    :class="{
-                      error: row.result.risk > 7,
-                      success: row.result.risk < 5,
-                    }"
-                  >
-                    {{ row.result.profitPH > 0 ? row.result.riskFormat : '' }}
-                  </span>
-                </template>
-              </el-table-column>
-              <el-table-column prop="result.profitRate" align="center" :label="t('利润率')" sortable="custom" :sort-orders="['descending', 'ascending', null]">
-                <template #default="{ row }">
-                  <span :class="row.hasManualPrice ? 'manual' : ''">
-                    <template v-if="isComparing && row._compareData?.length">
-                      <template v-for="(cd, ci) in row._compareData" :key="ci">
-                        <span v-if="cd">
-                          <span v-if="ci > 0"> / </span>
-                          <span :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.profitRateFormat }}</span>
-                        </span>
-                      </template>
-                    </template>
-                    <span v-else>{{ row.result.profitRateFormat }}</span>&nbsp;
-                  </span>
-                </template>
-              </el-table-column>
-              <el-table-column align="center" min-width="120">
-                <template #header>
-                  <div style="display: flex; justify-content: center; align-items: center; gap: 5px">
-                    <div>{{ t('利润 / 次') }}</div>
-                    <el-tooltip placement="top" effect="light">
-                      <template #content>
-                        {{ t('单次动作产生的利润。') }}
-                        <br>
-                        {{ t('#多步动作利润提示') }}
-                        <br>
-                        {{ t('#多步动作利润举例') }}
-                      </template>
-                      <el-icon>
-                        <Warning />
-                      </el-icon>
-                    </el-tooltip>
-                  </div>
-                </template>
-                <template #default="{ row }">
-                  <span :class="row.hasManualPrice ? 'manual' : ''">
-                    {{ row.result.profitPPFormat }}&nbsp;
-                  </span>
-                </template>
-              </el-table-column>
-              <el-table-column :label="t('售价')" align="center">
-                <template #default="{ row }">
-                  <span>
-                    {{ Format.price(row.calculator.productListWithPrice[0].price) }}
-                  </span>
-                </template>
-              </el-table-column>
+                <el-table-column v-if="colKey === 'vol' && jgColumnVisible.vol" :label="t('成交量(1h)')" align="center" min-width="120">
+                  <template #default="{ row }">
+                    {{ formatVolume1h(row) }}
+                  </template>
+                </el-table-column>
 
-              <el-table-column :label="t('成交量(1h)')" align="center" min-width="120">
-                <template #default="{ row }">
-                  {{ formatVolume1h(row) }}
-                </template>
-              </el-table-column>
+                <el-table-column v-if="colKey === 'expTime' && jgColumnVisible.expTime" :label="t('期望耗时')" align="center" min-width="110">
+                  <template #default="{ row }">
+                    {{ formatExpectedTime(row) }}
+                  </template>
+                </el-table-column>
 
-              <el-table-column :label="t('期望耗时')" align="center" min-width="110">
-                <template #default="{ row }">
-                  {{ formatExpectedTime(row) }}
-                </template>
-              </el-table-column>
+                <el-table-column v-if="colKey === 'toEnhancer' && jgColumnVisible.toEnhancer" :label="t('到强化工具中查看')" align="center" min-width="140">
+                  <template #default="{ row }">
+                    <el-link type="primary" @click="goToEnhancer(row)">
+                      {{ t('到强化工具中查看') }}
+                    </el-link>
+                  </template>
+                </el-table-column>
 
-              <el-table-column :label="t('到强化工具中查看')" align="center" min-width="140">
-                <template #default="{ row }">
-                  <el-link type="primary" @click="goToEnhancer(row)">
-                    {{ t('到强化工具中查看') }}
-                  </el-link>
-                </template>
-              </el-table-column>
-
-              <!-- <el-table-column :label="t('时效')" align="center">
+                <!-- <el-table-column :label="t('时效')" align="center">
                 <template #header>
                   <div style="display: flex; justify-content: center; align-items: center; gap: 5px">
                     <div>{{ t('时效') }}</div>
@@ -853,13 +940,14 @@ const isSuperJungle = computed(() => dataSource.value.type === "junglest")
                   </el-tooltip>
                 </template>
               </el-table-column> -->
-              <el-table-column :label="t('详情')" align="center">
-                <template #default="{ row }">
-                  <el-link type="primary" :icon="Search" @click="showDetail(row)">
-                    {{ t('查看') }}
-                  </el-link>
-                </template>
-              </el-table-column>
+                <el-table-column v-if="colKey === 'detail' && jgColumnVisible.detail" :label="t('详情')" align="center">
+                  <template #default="{ row }">
+                    <el-link type="primary" :icon="Search" @click="showDetail(row)">
+                      {{ t('查看') }}
+                    </el-link>
+                  </template>
+                </el-table-column>
+              </template>
             </el-table>
           </template>
           <template #footer>

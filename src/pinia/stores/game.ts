@@ -49,8 +49,7 @@ export const COMMUNITY_BUFF_LIST = [
   "moo_card",
   "experience",
   "gathering_quantity",
-  "production_efficiency",
-  "enhancing_speed"
+  "production_efficiency"
 ]
 
 export const ACHIEVEMENT_TIER_LIST = [
@@ -93,14 +92,17 @@ export enum PriceStatus {
   // 比左价低一档
   ASK_LOW = "ASK_LOW",
   // 比右价高一档
-  BID_HIGH = "BID_HIGH"
+  BID_HIGH = "BID_HIGH",
+  // 市场价格：不做档位换算的原始参考价（ask 侧取左价原值、bid 侧取右价原值）
+  MARKET = "MARKET"
 }
 
 export const PRICE_STATUS_LIST = [
   { value: PriceStatus.ASK, label: getTrans("左价") },
   { value: PriceStatus.ASK_LOW, label: `${getTrans("左价")}-` },
   { value: PriceStatus.BID, label: getTrans("右价") },
-  { value: PriceStatus.BID_HIGH, label: `${getTrans("右价")}+` }
+  { value: PriceStatus.BID_HIGH, label: `${getTrans("右价")}+` },
+  { value: PriceStatus.MARKET, label: getTrans("市场价格") }
 ]
 
 export const useGameStore = defineStore("game", {
@@ -108,8 +110,16 @@ export const useGameStore = defineStore("game", {
     gameData: null as GameData | null,
     marketData: null as MarketData | null,
     leaderboardCache: {} as { [key: string]: Calculator[] },
-    enhanposerCache: {} as { [time: number]: WorkflowCalculator[] },
-    manualchemyCache: {} as { [time: number]: Calculator[] },
+    enhanposerCache: {} as { [key: string]: WorkflowCalculator[] },
+    manualchemyCache: {} as { [key: string]: Calculator[] },
+    superAlchemyCache: {} as { [key: string]: any[] },
+    volHistory: [] as { ts: number, v: Record<string, number> }[],
+    /** 近 14 天 ask/bid 滚动中位数（update-market workflow 每日生成），key = "hrid@level" */
+    priceMedian: null as { ts: number, m: Record<string, { a?: number, b?: number }> } | null,
+    realtimeData: null as { ts: number, data: Record<string, { a: number, b: number, t: number }> } | null,
+    /** 社区Buff实时数据（搭 realtime.json 顺风车下发），hrid → 等级 */
+    communityBuffsLive: null as { ts: number, buffs: Record<string, number> } | null,
+    realtimeProbeAfter: 0,
     jungleCache: {} as { [key: string]: WorkflowCalculator[] },
     junglestCache: {} as { [key: string]: EnhanceCalculator[] },
     inheritCache: {} as { [time: number]: ManufactureCalculator[] },
@@ -120,14 +130,62 @@ export const useGameStore = defineStore("game", {
     persistentDataHydrated: false
   }),
   actions: {
+    async pollRealtime() {
+      // 退避期内直接跳过：公开通道空数据（PUBLIC=0）或 429 额度耗尽时，
+      // 全站访客继续 60s 轮询纯属烧 Worker 免费档额度，数据一个都拿不到
+      if (Date.now() < this.realtimeProbeAfter) return
+      try {
+        // 未公开阶段：本地开发改走带密钥的内部接口，公开接口对外只回空数据（Worker 端 PUBLIC 开关控制）
+        const internal = import.meta.env.DEV ? import.meta.env.VITE_RT_INTERNAL : ""
+        const headers: Record<string, string> = {}
+        if (internal) {
+          if (import.meta.env.VITE_RT_TOKEN) headers["x-token"] = import.meta.env.VITE_RT_TOKEN
+        }
+        const res = await fetch(internal || "https://rt.milkonomy.top/realtime.json", {
+          cache: "no-store",
+          signal: AbortSignal.timeout(10_000),
+          headers
+        })
+        if (!res.ok) {
+          // 429 = 免费档额度耗尽（CF 1027）：10 分钟探测一次，额度重置后自动恢复
+          if (res.status === 429) this.realtimeProbeAfter = Date.now() + 10 * 60 * 1000
+          return
+        }
+        const data = await res.json()
+        const hasData = data && data.data && Object.keys(data.data).length > 0
+        const hasBuffs = data && data.buffs && typeof data.buffs === "object" && Object.keys(data.buffs).length > 0
+        if (hasData) {
+          this.realtimeData = data
+        }
+        if (hasBuffs) {
+          const buffTs = data.buffTs || data.ts || Date.now()
+          // KV 里旧 buff 永不过期（最后上报者胜），超 12h 无人上报视为已下线，回退预设手动值
+          if (Date.now() - buffTs < 12 * 3600 * 1000) {
+            this.communityBuffsLive = { ts: buffTs, buffs: data.buffs }
+          } else {
+            this.communityBuffsLive = null
+          }
+        }
+        if (hasData || hasBuffs) {
+          this.realtimeProbeAfter = 0
+        } else {
+          // 空数据多为边缘缓存 30s 窗口内的旧副本或瞬时抖动，公开常态下 3 分钟后即恢复轮询
+          // （历史值 1h 是 PUBLIC=0 收集期防烧额度用的，公开后过时）
+          this.realtimeProbeAfter = Date.now() + 3 * 60 * 1000
+        }
+      } catch {
+        // 域名未生效/网络不可达时静默
+      }
+    },
     async hydratePersistentData() {
       if (this.persistentDataHydrated) {
         return
       }
 
+      // 存储被拒（隐私模式/配额满）时按无缓存处理，不能让异常打断数据加载链
       const [gameData, marketData] = await Promise.all([
-        getGameData(),
-        getMarketData()
+        getGameData().catch(() => null),
+        getMarketData().catch(() => null)
       ])
 
       this.gameData = gameData
@@ -145,11 +203,12 @@ export const useGameStore = defineStore("game", {
           ElMessage.error(t("获取数据第{0}次失败，正在重试...", [5 - retryCount]))
         }
       }
-      if (this.gameData && this.marketData && retryCount === 0) {
-        ElMessage.error(t("数据获取失败，直接使用缓存数据"))
-        return
-      }
       if (retryCount < 0) {
+        // 5 次全部失败：有缓存则降级用缓存，否则只能报错
+        if (this.gameData && this.marketData) {
+          ElMessage.error(t("数据获取失败，直接使用缓存数据"))
+          return
+        }
         ElMessage.error(t("数据获取失败，请检查网络连接"))
         throw new Error("强制宕机")
       }
@@ -160,20 +219,52 @@ export const useGameStore = defineStore("game", {
       //   return
       // }
       const url = import.meta.env.MODE === "development" ? "/" : "./"
-      // 开发环境市场数据走 vite 代理（见 vite.config.ts /milkyway-market），浏览器直连官方站国内常失败
       const MARKET_URLS = [
-        import.meta.env.MODE === "development" ? "/milkyway-market" : "https://www.milkywayidle.com/game_data/marketplace.json"
+        // "https://mooket.qi-e.top/market/api.json",
+        "https://www.milkywayidle.com/game_data/marketplace.json"
       ]
-      // const LAST_MARKET_URL = `${url}data/market.json`
+      const LAST_MARKET_URL = `${url}data/market.json`
       const DATA_URL = `${url}data/data.json`
       const marketUrl = MARKET_URLS[(4 - offset) % MARKET_URLS.length]
 
-      const response = await Promise.all([fetch(DATA_URL), fetch(marketUrl)])
-      if (!response[0].ok || !response[1].ok) {
-        throw new Error("Response not ok")
+      // 官方 marketplace.json 响应带约 1h 的 HTTP 缓存头，必须 no-store，
+      // 否则挂机轮询永远命中缓存、时间戳停在首次打开时刻
+      const fetchMarket = async (u: string) => {
+        const controller = new AbortController()
+        const timer = setTimeout(() => controller.abort(), 10_000)
+        try {
+          return await fetch(u, { cache: "no-store", signal: controller.signal })
+        } finally {
+          clearTimeout(timer)
+        }
       }
-      const newGameData = await response[0].json()
-      const newMarketData = await response[1].json()
+      // 官方格式：数字 timestamp + marketData 对象（拒绝 MWIApi 旧格式 market/time）
+      const isOfficialMarket = (d: unknown): d is MarketDataPlain =>
+        typeof (d as MarketDataPlain)?.timestamp === "number"
+        && !!(d as MarketDataPlain)?.marketData
+
+      const dataPromise = fetch(DATA_URL).then(async (res) => {
+        if (!res.ok) throw new Error("Response not ok")
+        return res.json() as Promise<GameData>
+      })
+
+      let newMarketData: MarketDataPlain
+      try {
+        const marketResponse = await fetchMarket(marketUrl)
+        if (!marketResponse.ok) throw new Error("Response not ok")
+        const official = await marketResponse.json()
+        if (!isOfficialMarket(official)) throw new Error("invalid marketplace.json")
+        newMarketData = official
+      } catch (e) {
+        // 国内直连官方接口失败/超时：回退同源快照（gh-pages 上由 update-market workflow 每小时刷新）
+        console.warn("官方市场数据获取失败，回退本地快照", e)
+        const snapshotResponse = await fetchMarket(LAST_MARKET_URL)
+        if (!snapshotResponse.ok) throw new Error("Snapshot response not ok")
+        const snapshot = await snapshotResponse.json()
+        if (!isOfficialMarket(snapshot)) throw new Error("invalid market snapshot")
+        newMarketData = snapshot
+      }
+      const newGameData = await dataPromise
       // 仅当 gameData 版本真的变化时才更新 pinia 状态并清空衍生缓存，
       // 避免每次轮询都触发整棵响应链；
       // 历史上注释写的"防止国际化数据被覆"已不再成立——i18n 走静态映射，不会回写 gameData
@@ -195,6 +286,28 @@ export const useGameStore = defineStore("game", {
 
       this.marketData = await updateMarketData(this.marketData, newMarketData, newGameData)
       this.clearAllCaches()
+
+      // 成交量历史快照（update-market workflow 每小时生成；文件不存在时静默跳过）
+      fetch(`${url}data/vol-history.json`)
+        .then(async (res) => {
+          if (!res.ok) return
+          const hist = await res.json()
+          if (Array.isArray(hist) && hist.length > 0 && this.volHistory.length !== hist.length) {
+            this.volHistory = hist
+          }
+        })
+        .catch(() => { /* 快照尚未生成，忽略 */ })
+
+      // 近 14 天价格中位数参考（update-market workflow 每日生成；文件不存在时静默跳过）
+      fetch(`${url}data/market-median.json`, { cache: "no-store" })
+        .then(async (res) => {
+          if (!res.ok) return
+          const med = await res.json()
+          if (med && typeof med.ts === "number" && med.m && typeof med.m === "object") {
+            this.priceMedian = med
+          }
+        })
+        .catch(() => { /* 尚未生成，忽略 */ })
     },
 
     savePriceStatus() {
@@ -221,25 +334,42 @@ export const useGameStore = defineStore("game", {
       }
       this.leaderboardCache = {}
     },
-    getEnhanposerCache() {
-      return this.enhanposerCache[this.marketData!.timestamp]
+    getEnhanposerCache(key?: string) {
+      const cacheKey = key ?? String(this.marketData!.timestamp)
+      return this.enhanposerCache[cacheKey]
     },
-    setEnhanposerCache(list: WorkflowCalculator[]) {
-      this.clearEnhanposerCache()
-      this.enhanposerCache[this.marketData!.timestamp] = list
+    setEnhanposerCache(list: WorkflowCalculator[], key?: string) {
+      const cacheKey = key ?? String(this.marketData!.timestamp)
+      this.enhanposerCache[cacheKey] = list
     },
-    clearEnhanposerCache() {
+    clearEnhanposerCache(key?: string) {
+      if (key) {
+        delete this.enhanposerCache[key]
+        return
+      }
       this.enhanposerCache = {}
     },
-    getManualchemyCache() {
-      return this.manualchemyCache[this.marketData!.timestamp]
+    getManualchemyCache(key?: string) {
+      const cacheKey = key ?? String(this.marketData!.timestamp)
+      return this.manualchemyCache[cacheKey]
     },
-    setManualchemyCache(list: Calculator[]) {
-      this.clearManualchemyCache()
-      this.manualchemyCache[this.marketData!.timestamp] = list
+    setManualchemyCache(list: Calculator[], key?: string) {
+      const cacheKey = key ?? String(this.marketData!.timestamp)
+      this.manualchemyCache[cacheKey] = list
     },
     clearManualchemyCache() {
       this.manualchemyCache = {}
+    },
+    getSuperAlchemyCache(key?: string) {
+      const cacheKey = key ?? String(this.marketData!.timestamp)
+      return this.superAlchemyCache[cacheKey]
+    },
+    setSuperAlchemyCache(list: any[], key?: string) {
+      this.clearSuperAlchemyCache()
+      this.superAlchemyCache[key ?? String(this.marketData!.timestamp)] = list
+    },
+    clearSuperAlchemyCache() {
+      this.superAlchemyCache = {}
     },
     getJungleCache(key: string) {
       return this.jungleCache[key]
@@ -327,7 +457,7 @@ function hasAvgVolFields(data: MarketData | null | undefined) {
   return false
 }
 
-async function updateMarketData(oldData: MarketData | null, newData: MarketDataPlain, newGameData: GameData): Promise<MarketData> {
+export async function updateMarketData(oldData: MarketData | null, newData: MarketDataPlain, newGameData: GameData): Promise<MarketData> {
   const oldMarket = oldData?.marketData || {}
   const newMarket: Market = { }
 
@@ -355,8 +485,8 @@ async function updateMarketData(oldData: MarketData | null, newData: MarketDataP
     isEquipmentMap[item.hrid] = item.categoryHrid === "/item_categories/equipment"
   }
   for (const hrid in newMarket) {
-    // 如果是装备，则不保留旧值
-    if (isEquipmentMap[hrid] || oldMarket[hrid]) {
+    // 装备不留旧值；非装备且无旧数据的物品也无从回填，跳过
+    if (isEquipmentMap[hrid] || !oldMarket[hrid]) {
       continue
     }
     for (const level in newMarket[hrid]) {

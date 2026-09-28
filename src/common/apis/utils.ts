@@ -1,4 +1,5 @@
 import type Calculator from "@/calculator"
+import { getTrans } from "@/locales"
 import { getEquipmentTypeOf } from "../utils/game"
 import { getPriceOf } from "./game"
 import { normalizeProject } from "./leaderboard/tierChains"
@@ -68,8 +69,22 @@ export function handleSearch(profitList: Calculator[], params: any) {
   )
 
   if (params.project) {
-    const target = normalizeProject(params.project)
-    profitList = profitList.filter(cal => normalizeProject(cal.project).includes(target) || cal.project.includes(params.project!))
+    // ^ 开头 = 正则匹配（打野页分类筛选用锚定正则区分纯强化/制造流），其余保持子串匹配；非法正则按子串回退
+    if (params.project.startsWith("^")) {
+      try {
+        const projectRegex = new RegExp(params.project)
+        profitList = profitList.filter(cal => projectRegex.test(cal.project))
+      } catch {
+        profitList = profitList.filter(cal => cal.project.includes(params.project!))
+      }
+    } else {
+      const target = normalizeProject(params.project)
+      // 多步火车行的 project 是复合名（「2步制造」/「2 Step Crafting」/「2步製造」），
+      // 不是 PROJECT_ALIAS 的完整 key，归一化对它失效；须再按当前语言译名做子串匹配，
+      // 否则英文/繁中界面下火车行会被动作筛选整行滤掉（反馈池 #4）
+      const targetTrans = getTrans(params.project)
+      profitList = profitList.filter(cal => normalizeProject(cal.project).includes(target) || cal.project.includes(params.project!) || cal.project.includes(targetTrans))
+    }
   }
   params.banEquipment && (profitList = profitList.filter(cal => !cal.isEquipment))
   params.banJewelry && (profitList = profitList.filter(cal =>

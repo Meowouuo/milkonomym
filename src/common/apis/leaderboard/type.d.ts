@@ -16,7 +16,7 @@ export interface RequestData {
   banEquipment?: boolean
   /** 查询参数：排除护符(charm) */
   banCharm?: boolean
-  /** 是否计算市场卖出税率(5%)；默认 true */
+  /** 是否计算市场卖出税率(4%)；默认 true */
   includeTax?: boolean
   /** 多步产量修正：开启后多步工作流按跨步用料平衡重新分配工时 */
   crossStepBalance?: boolean
@@ -26,6 +26,7 @@ export interface RequestData {
   maxItemLevel?: number
   minVolume1h?: number
   maxVolume1h?: number
+  includeRare?: boolean
   /** 逐级制作：材质链 key（裁缝分皮/布） */
   tierChainKey?: string
   /** 起始材质档位（itemLevel） */
@@ -34,6 +35,10 @@ export interface RequestData {
   endTierLevel?: number | string
   /** 纯净火车：仅显示名称匹配当前材质链的产物 */
   pureOnly?: boolean
+  /** 最高利润步骤：同一产物多条步数路径（1步买料/N步火车）只保留利润/h 最高的一条 */
+  bestStepOnly?: boolean
+  /** 对比模式：返回未经搜索/排序/分页的全量列表（首页对比列按物品 join 取数，过滤会把预设列滤成空） */
+  fullList?: boolean
 }
 
 export type ResponseData = ApiResponseData<{

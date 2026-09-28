@@ -1,6 +1,7 @@
 import type { Action, ActionDetail, ItemDetail } from "~/game"
 import * as Format from "@@/utils/format"
 import { getItemDetailOf } from "@/common/apis/game"
+import { getCraftCostOf } from "@/common/apis/game/craft"
 import { getBuffOf, getPlayerLevelOf } from "@/common/apis/player"
 import { getManualPriceOf } from "@/common/apis/price"
 import { SELL_TAX_FACTOR } from "@/common/constants/market"
@@ -19,8 +20,10 @@ export interface CalculatorConfig {
   catalystRank?: number
   enhanceLevel?: number
   originLevel?: number
-  /** 市场卖出税率因子：默认 0.95(5%税)；设为 1 表示不计税 */
+  /** 市场卖出税率因子：默认 0.96(4%税)；设为 1 表示不计税 */
   sellTaxFactor?: number
+  /** false 时产物剔除稀有掉落与额外精华掉落（采集/炼金系），默认 true */
+  includeRare?: boolean
 }
 export default abstract class Calculator {
   hrid: string
@@ -37,7 +40,7 @@ export default abstract class Calculator {
   hasManualPrice: boolean = false
   config: CalculatorConfig
   enhanceLevel: number = 0
-  /** 市场卖出税率因子：默认 0.95(5%税)；设为 1 表示不计税 */
+  /** 市场卖出税率因子：默认 0.96(4%税)；设为 1 表示不计税 */
   sellTaxFactor: number = SELL_TAX_FACTOR
   constructor(config: CalculatorConfig) {
     const { hrid, project, action, ingredientPriceConfigList = [], productPriceConfigList = [], catalystRank } = config
@@ -102,7 +105,12 @@ export default abstract class Calculator {
       if (!priceConfig?.immutable && hasManualPrice) {
         this.hasManualPrice = true
       }
-      const price = priceConfig?.immutable ? priceConfig.price! : hasManualPrice ? manualPrice! : item.marketPrice
+      let price = priceConfig?.immutable ? priceConfig.price! : hasManualPrice ? manualPrice! : item.marketPrice
+      // 买价侧无卖单 → 回退制造成本（买不到就自己造）；卖价侧保持 -1（卖不掉不能拿成本冒充市价）
+      if (price < 0 && type === "ask") {
+        const craft = getCraftCostOf(item.hrid)
+        if (craft >= 0) price = craft
+      }
       result.push(Object.assign(item, { price }))
     }
     return result
@@ -319,10 +327,11 @@ export default abstract class Calculator {
       cost4MatPHFormat: Format.money(cost4MatPH),
       incomePHFormat: Format.money(incomePH),
       profitPHFormat: Format.money(profitPH),
+      profitPD: profitPH * 24,
       profitPDFormat: Format.money(profitPH * 24),
       profitPP,
       profitPPFormat: Format.money(profitPP),
-      profitRateFormat: Format.percent(profitRate),
+      profitRateFormat: profitRate === -1 ? "—" : Format.percent(profitRate),
       efficiencyFormat: Format.percent(this.efficiency - 1),
       speedFormat: Format.percent(this.speed - 1),
       timeCostFormat: Format.costTime(this.effectiveTimeCost),

@@ -57,6 +57,23 @@ export const publicRoutes: RouteRecordRaw[] = [
   {
     path: "/",
     component: Layouts,
+    redirect: "/upgrade",
+    children: [
+      {
+        path: "upgrade",
+        component: () => import("@/pages/upgrade/index.vue"),
+        name: "Upgrade",
+        meta: {
+          title: t("装备优化"),
+          elIcon: "MagicStick",
+          affix: false
+        }
+      }
+    ]
+  },
+  {
+    path: "/",
+    component: Layouts,
     redirect: "/enhancer",
     children: [
       {
@@ -75,10 +92,6 @@ export const publicRoutes: RouteRecordRaw[] = [
     path: "/",
     component: Layouts,
     redirect: "/jungle",
-    meta: {
-      title: t("强化工具"),
-      elIcon: "Compass"
-    },
     children: [
       {
         path: "jungle",
@@ -89,7 +102,35 @@ export const publicRoutes: RouteRecordRaw[] = [
           affix: false,
           elIcon: "Compass"
         }
-      },
+      }
+    ]
+  },
+  {
+    path: "/",
+    component: Layouts,
+    redirect: "/philosopher",
+    children: [
+      {
+        path: "philosopher",
+        component: () => import("@/pages/philosopher/index.vue"),
+        name: "Philosopher",
+        meta: {
+          title: t("贤者镜计算"),
+          itemIconHrid: "/items/philosophers_mirror",
+          affix: false
+        }
+      }
+    ]
+  },
+  {
+    path: "/",
+    component: Layouts,
+    redirect: "/junglerit",
+    meta: {
+      title: t("强化工具"),
+      elIcon: "Compass"
+    },
+    children: [
       {
         path: "junglerit",
         component: () => import("@/pages/junglest/inherit.vue"),
@@ -148,23 +189,6 @@ export const publicRoutes: RouteRecordRaw[] = [
           title: t("超级强化分解"),
           affix: false,
           elIcon: "Box"
-        }
-      }
-    ]
-  },
-  {
-    path: "/",
-    component: Layouts,
-    redirect: "/philosopher",
-    children: [
-      {
-        path: "philosopher",
-        component: () => import("@/pages/philosopher/index.vue"),
-        name: "Philosopher",
-        meta: {
-          title: t("贤者镜计算"),
-          itemIconHrid: "/items/philosophers_mirror",
-          affix: false
         }
       }
     ]

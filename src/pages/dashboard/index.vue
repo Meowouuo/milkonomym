@@ -4,7 +4,7 @@ import { getLeaderboardDataApi } from "@@/apis/leaderboard"
 import { normalizeProject, supportsTierFilter, TIER_CHAINS } from "@@/apis/leaderboard/tierChains"
 import ItemIcon from "@@/components/ItemIcon/index.vue"
 import { usePagination } from "@@/composables/usePagination"
-import { ArrowDown, Close, Delete, Edit, Plus, Search, Star, StarFilled, Warning } from "@element-plus/icons-vue"
+import { ArrowDown, Close, Delete, Edit, Plus, Search, Setting, Star, StarFilled, Warning } from "@element-plus/icons-vue"
 import { ElMessage, ElMessageBox, type FormInstance, type Sort } from "element-plus"
 import { cloneDeep, debounce } from "lodash-es"
 
@@ -20,8 +20,9 @@ import { usePlayerStore } from "@/pinia/stores/player"
 import { usePriceStore } from "@/pinia/stores/price"
 import ActionConfig from "./components/ActionConfig.vue"
 import ActionDetail from "./components/ActionDetail.vue"
-
 import ActionPrice from "./components/ActionPrice.vue"
+
+import ColumnSettings from "./components/ColumnSettings.vue"
 import GameInfo from "./components/GameInfo.vue"
 import ManualPriceCard from "./components/ManualPriceCard.vue"
 import PriceStatusSelect from "./components/PriceStatusSelect.vue"
@@ -33,6 +34,32 @@ const { paginationData: paginationDataLD, handleCurrentChange: handleCurrentChan
 
 const leaderboardData = ref<Calculator[]>([])
 
+// 列设置：勾选显隐 + 拖拽排序（与超炼页同款）
+const ldColumnVisible = useMemory("ld-column-visible", {
+  action: true,
+  reqLevel: true,
+  profitPD: true,
+  profitPH: true,
+  profitRate: true,
+  profitPP: true,
+  expPH: true,
+  vol: true,
+  detail: true,
+  favorite: true
+} as Record<string, boolean>)
+const ldColumnOrder = useMemory("ld-column-order", [
+  "action",
+  "reqLevel",
+  "profitPD",
+  "profitPH",
+  "profitRate",
+  "profitPP",
+  "expPH",
+  "vol",
+  "detail",
+  "favorite"
+])
+
 // 预设对比 (N-way)
 const isComparing = ref(false)
 const showCompareSelector = ref(false)
@@ -41,8 +68,7 @@ const compareDataSets = ref<Record<string, Calculator>[]>([])
 const compareNames = ref<string[]>([])
 const COMPARE_TYPES = ["primary", "warning", "success", "danger", "info"] as const
 const compareIdxA = ref(0)
-// 对比捕获进行中：暂停分页监听器触发的常规刷新，避免与全量捕获并发重复计算
-const isCapturing = ref(false)
+let _compareResolve: (() => void) | null = null
 const compareSelectorRef = ref<HTMLElement>()
 
 function onCompareSelectorClickOutside(e: MouseEvent) {
@@ -72,7 +98,7 @@ function removeCompareSlot(index: number) {
   comparePresets.value.splice(index, 1)
 }
 
-async function startNCompare() {
+function startNCompare() {
   const ps = usePlayerStore()
   if (comparePresets.value.length < 2) {
     ElMessage.warning(t("请选择至少2个预设进行对比"))
@@ -84,101 +110,84 @@ async function startNCompare() {
   compareDataSets.value = []
 
   const unique = [...new Set(comparePresets.value)]
-  isCapturing.value = true
-  loadingLD.value = true
-  try {
-    for (const pidx of unique) {
-      // 每个预设直接全量拉取（绕过分页），保证对比列数据齐全
-      ps.switchTo(pidx)
-      const data = await getLeaderboardDataApi({
-        currentPage: 1,
-        size: 999999,
-        includeTax: includeTax.value,
-        crossStepBalance: crossStepBalance.value,
-        ...ldSearchData.value,
-        sort: sortLD.value
+  let currentIdx = 0
+
+  function captureNext() {
+    if (currentIdx >= unique.length) {
+      const expanded = comparePresets.value.map((pidx) => {
+        const idx = unique.indexOf(pidx)
+        return compareDataSets.value[idx >= 0 ? idx : 0]
       })
-      const map: Record<string, Calculator> = {}
-      for (const item of data.list) map[item.key] = item
-      compareDataSets.value.push(map)
+      compareDataSets.value = expanded
+      isComparing.value = true
+      _compareResolve = null
+      usePlayerStore().switchTo(compareIdxA.value)
+      return
     }
-  } catch (e) {
-    console.error(e)
-    ElMessage.error(t("计算失败或结果为空，请打开控制台查看错误"))
-  } finally {
-    isCapturing.value = false
-    loadingLD.value = false
+
+    const pidx = unique[currentIdx]
+    currentIdx++
+
+    // If already on this preset, capture immediately without waiting for switch
+    if (pidx === usePlayerStore().presetIndex) {
+      captureCompareMap().then((map) => {
+        compareDataSets.value.push(map)
+        captureNext()
+      })
+    } else {
+      _compareResolve = captureNext
+      usePlayerStore().switchTo(pidx)
+    }
   }
 
-  if (compareDataSets.value.length === 0) {
-    usePlayerStore().switchTo(compareIdxA.value)
-    getLeaderboardData()
-    return
-  }
-
-  // 选择器里可能重复选同一预设：展开成与 comparePresets 一一对应的数据集
-  compareDataSets.value = comparePresets.value.map((pidx) => {
-    const idx = unique.indexOf(pidx)
-    return compareDataSets.value[idx >= 0 ? idx : 0]
-  })
-
-  // 对比行 = 各预设数据的并集，总数用于分页
-  const unionKeys = new Set<string>()
-  for (const ds of compareDataSets.value) {
-    for (const key of Object.keys(ds)) unionKeys.add(key)
-  }
-
-  paginationDataLD.currentPage = 1
-  paginationDataLD.total = unionKeys.size
-  isComparing.value = true
-
-  // 切回原预设；对比模式表格用并集数据，无需重算原预设（退出对比时会重新拉取）
-  usePlayerStore().switchTo(compareIdxA.value)
+  captureNext()
 }
+
+// 对比列必须取「未过滤全量」：正常榜单走了搜索过滤+分页切片，预设里利润率/排名
+// 不达标的物品会从 map 里消失，对比列就整列空（详见 getLeaderboardDataApi fullList 注释）
+async function captureCompareMap(): Promise<Record<string, Calculator>> {
+  const data = await getLeaderboardDataApi({
+    currentPage: 1,
+    size: 1,
+    includeTax: includeTax.value,
+    includeRare: includeRare.value,
+    crossStepBalance: crossStepBalance.value,
+    fullList: true
+  })
+  const map: Record<string, Calculator> = {}
+  for (const item of data.list) map[item.key] = item
+  return map
+}
+
+// Watch leaderboardData: capture data for comparison
+watch(leaderboardData, () => {
+  if (_compareResolve) {
+    const resolve = _compareResolve
+    _compareResolve = null
+    captureCompareMap().then((map) => {
+      compareDataSets.value.push(map)
+      resolve()
+    })
+  }
+})
 
 function exitCompare() {
   isComparing.value = false
   compareDataSets.value = []
-  getLeaderboardData()
+  _compareResolve = null
 }
-
-const compareUnionRows = computed<any[]>(() => {
-  if (!isComparing.value || compareDataSets.value.length === 0) return []
-  const rows: any[] = []
-  const seen = new Set<string>()
-  for (const ds of compareDataSets.value) {
-    for (const item of Object.values(ds)) {
-      if (seen.has(item.key)) continue
-      seen.add(item.key)
-      // 必须直接用 Calculator 实例做行：{...item} 展开会丢原型 getter（key/catalyst/actionLevel/expList 等），
-      // 导致 row.key 为 undefined → ds[row.key] 查不到 → 对比列全为 null（数值不显示）
-      ;(item as any)._compareData = [] as (Calculator | null)[]
-      rows.push(item)
-    }
-  }
-  for (const row of rows) {
-    for (const ds of compareDataSets.value) row._compareData.push(ds[row.key] || null)
-  }
-
-  return rows
-})
 
 const displayLeaderboardData = computed(() => {
-  if (!isComparing.value || compareUnionRows.value.length === 0) return leaderboardData.value
-  const { currentPage, pageSize } = paginationDataLD
-  return compareUnionRows.value.slice((currentPage - 1) * pageSize, currentPage * pageSize)
+  if (!isComparing.value || compareDataSets.value.length === 0) return leaderboardData.value
+  return leaderboardData.value.map((row) => {
+    const dataSets = compareDataSets.value
+    const result: any = { ...row, _compareData: [] as (Calculator | null)[] }
+    for (const ds of dataSets) {
+      result._compareData.push(ds[row.key] || null)
+    }
+    return result
+  })
 })
-
-// 对比模式：当前预设相对第一个预设的每日利润变化百分比（基准无效或自身时返回 null）
-// 注：result 里没有裸的 profitPD 字段，利润/天 = profitPH × 24，比值等价
-function compareDeltaOf(row: any, ci: number): { text: string, positive: boolean } | null {
-  if (ci === 0) return null
-  const base = row._compareData?.[0]?.result?.profitPH
-  const cur = row._compareData?.[ci]?.result?.profitPH
-  if (!base || base <= 0 || !cur) return null
-  const pct = ((cur - base) / base) * 100
-  return { text: `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`, positive: pct >= 0 }
-}
 
 const ldSearchFormRef = ref<FormInstance | null>(null)
 
@@ -194,10 +203,12 @@ const ldSearchData = useMemory("dashboard-leaderboard-search-data", {
   tierChainKey: "",
   startTierLevel: "",
   endTierLevel: "",
-  pureOnly: false
+  pureOnly: false,
+  bestStepOnly: false
 })
 
 const includeTax = useMemory("dashboard-include-tax", true)
+const includeRare = useMemory("dashboard-include-rare", true)
 const crossStepBalance = useMemory("dashboard-cross-step-balance", false)
 
 const loadingLD = ref(false)
@@ -208,12 +219,12 @@ const getLeaderboardData = debounce(() => {
     currentPage: paginationDataLD.currentPage,
     size: paginationDataLD.pageSize,
     includeTax: includeTax.value,
+    includeRare: includeRare.value,
     crossStepBalance: crossStepBalance.value,
     ...ldSearchData.value,
     sort: sortLD.value
   }).then((data) => {
-    // 对比模式下总数由并集行数管理，避免被普通刷新覆盖
-    if (!isComparing.value) paginationDataLD.total = data.total
+    paginationDataLD.total = data.total
     leaderboardData.value = data.list
   }).catch((e) => {
     console.error(e)
@@ -238,15 +249,13 @@ watch([
   () => paginationDataLD.currentPage,
   () => paginationDataLD.pageSize,
   () => includeTax.value,
+  () => includeRare.value,
   () => crossStepBalance.value,
   () => useGameStore().marketData,
   () => usePlayerStore().config,
   () => useGameStore().buyStatus,
   () => useGameStore().sellStatus
-], () => {
-  // 对比模式下主表格用并集数据，切预设/参数变化不再触发无用的重算
-  if (!isCapturing.value && !isComparing.value) getLeaderboardData()
-}, { immediate: true })
+], getLeaderboardData, { immediate: true })
 
 const { paginationData: paginationDataMN, handleCurrentChange: handleCurrentChangeFR, handleSizeChange: handleSizeChangeFR } = usePagination({}, "dashboard-favorite-pagination")
 const favoriteData = ref<Calculator[]>([])
@@ -266,6 +275,7 @@ function getFavoriteData() {
     currentPage: paginationDataMN.currentPage,
     size: paginationDataMN.pageSize,
     includeTax: includeTax.value,
+    includeRare: includeRare.value,
     crossStepBalance: crossStepBalance.value,
     ...frSearchData.value
   }).then((data) => {
@@ -291,6 +301,7 @@ watch([
   () => paginationDataMN.currentPage,
   () => paginationDataMN.pageSize,
   () => includeTax.value,
+  () => includeRare.value,
   () => crossStepBalance.value,
   () => useGameStore().marketData,
   () => usePlayerStore().config,
@@ -412,7 +423,7 @@ const onPriceStatusChange = usePriceStatus("dashboard-price-status")
     <div class="game-info">
       <GameInfo />
       <div>
-        <ActionConfig @toggle-compare="!isComparing && (showCompareSelector = !showCompareSelector)" />
+        <ActionConfig :show-compare="true" @toggle-compare="!isComparing && (showCompareSelector = !showCompareSelector)" />
       </div>
 
       <PriceStatusSelect
@@ -421,6 +432,10 @@ const onPriceStatusChange = usePriceStatus("dashboard-price-status")
 
       <el-checkbox v-model="includeTax" @change="handleIncludeTaxChange">
         {{ t('计算税率') }}
+      </el-checkbox>
+
+      <el-checkbox v-model="includeRare">
+        {{ t('稀有发现') }}
       </el-checkbox>
 
       <el-tooltip placement="top" effect="light">
@@ -496,6 +511,15 @@ const onPriceStatusChange = usePriceStatus("dashboard-price-status")
                   </el-tooltip>
                 </el-form-item>
               </template>
+
+              <el-form-item :label="t('最高利润步骤')">
+                <el-checkbox v-model="ldSearchData.bestStepOnly" @change="handleSearchLD" />
+                <el-tooltip :content="t('同一产物有多条步数路径（如2步/5步锻造）时，只保留利润/h最高的一条')" placement="top">
+                  <el-icon style="margin-left:6px;cursor:help;color:#909399">
+                    <QuestionFilled />
+                  </el-icon>
+                </el-tooltip>
+              </el-form-item>
 
               <el-form-item prop="name" :label="`${t('利润率')} >`">
                 <el-input style="width:60px" v-model="ldSearchData.profitRate" :placeholder="t('请输入')" clearable @input="handleSearchLD" />&nbsp;%
@@ -602,6 +626,28 @@ const onPriceStatusChange = usePriceStatus("dashboard-price-status")
             </div>
             <el-table :data="displayLeaderboardData" v-loading="loadingLD" @sort-change="handleSortLD" style="overflow-x:auto">
               <el-table-column width="54" fixed="left">
+                <template #header>
+                  <ColumnSettings
+                    :columns="[
+                      { key: 'action', label: '动作' },
+                      { key: 'reqLevel', label: '要求等级' },
+                      { key: 'profitPD', label: '利润 / 天' },
+                      { key: 'profitPH', label: '利润 / h' },
+                      { key: 'profitRate', label: '利润率' },
+                      { key: 'profitPP', label: '利润 / 次' },
+                      { key: 'expPH', label: '经验 / h' },
+                      { key: 'vol', label: '成交量(1h)' },
+                      { key: 'detail', label: '详情' },
+                      { key: 'favorite', label: '收藏' },
+                    ]" :visible="ldColumnVisible" :order="ldColumnOrder"
+                  >
+                    <template #reference>
+                      <el-icon :size="18" style="cursor: pointer" :title="t('列设置')">
+                        <Setting />
+                      </el-icon>
+                    </template>
+                  </ColumnSettings>
+                </template>
                 <template #default="{ row }">
                   <ItemIcon :hrid="row.hrid" />
                 </template>
@@ -612,131 +658,123 @@ const onPriceStatusChange = usePriceStatus("dashboard-price-status")
                   <ItemIcon v-if="row.catalyst" :hrid="`/items/${row.catalyst}`" />
                 </template>
               </el-table-column>
-              <el-table-column prop="project" :label="t('动作')" />
-              <el-table-column prop="actionLevel" :label="t('要求等级')" align="center">
-                <template #default="{ row }">
-                  <div :class="row.actionLevel > getActionConfigOf(row.action).playerLevel ? 'red' : ''">
-                    {{ row.actionLevel }}
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column :label="t('利润 / 天')" align="center" min-width="120">
-                <template #default="{ row }">
-                  <span :class="row.hasManualPrice ? 'manual' : ''">
-                    <template v-if="isComparing && row._compareData?.length">
-                      <template v-for="(cd, ci) in row._compareData" :key="ci">
-                        <span v-if="cd">
-                          <span v-if="ci > 0"> / </span>
-                          <span :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.profitPDFormat }}</span>
-                          <span
-                            v-if="compareDeltaOf(row, ci)"
-                            :style="{ color: compareDeltaOf(row, ci)!.positive ? '#16ab1b' : '#f56c6c', fontSize: '12px' }"
-                          >
-                            ({{ compareDeltaOf(row, ci)!.text }})
-                          </span>
-                        </span>
-                      </template>
-                    </template>
-                    <span v-else style="word-break:break-all;display:inline-block;max-width:200px">{{ row.result.profitPDFormat }}</span>&nbsp;
-                  </span>
-                  <el-link type="primary" :icon="Edit" @click="setPrice(row)">
-                    {{ t('自定义') }}
-                  </el-link>
-                </template>
-              </el-table-column>
-              <el-table-column :label="t('利润 / h')" align="center" min-width="120">
-                <template #default="{ row }">
-                  <template v-if="isComparing && row._compareData?.length">
-                    <template v-for="(cd, ci) in row._compareData" :key="ci">
-                      <span v-if="cd"><span v-if="ci > 0"> / </span><span :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.profitPHFormat }}</span></span>
-                    </template>
-                  </template><span v-else style="word-break:break-all;display:inline-block;max-width:180px">{{ row.result.profitPHFormat }}</span>
-                </template>
-              </el-table-column>
-              <el-table-column prop="result.profitRate" :label="t('利润率')" min-width="120" align="center" sortable="custom" :sort-orders="['descending', null]">
-                <template #default="{ row }">
-                  <template v-if="isComparing && row._compareData?.length">
-                    <template v-for="(cd, ci) in row._compareData" :key="ci">
-                      <span v-if="cd">
-                        <span v-if="ci > 0"> / </span>
-                        <span :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.profitRateFormat }}</span>
-                      </span>
-                    </template>
+              <template v-for="colKey in ldColumnOrder" :key="colKey">
+                <el-table-column v-if="colKey === 'action' && ldColumnVisible.action" prop="project" :label="t('动作')" />
+                <el-table-column v-if="colKey === 'reqLevel' && ldColumnVisible.reqLevel" prop="actionLevel" :label="t('要求等级')" align="center">
+                  <template #default="{ row }">
+                    <div :class="row.actionLevel > getActionConfigOf(row.action).playerLevel ? 'red' : ''">
+                      {{ row.actionLevel }}
+                    </div>
                   </template>
-                  <span v-else>{{ row.result.profitRateFormat }}</span>
-                </template>
-              </el-table-column>
-
-              <el-table-column align="center" min-width="120">
-                <template #header>
-                  <div style="display: flex; justify-content: center; align-items: center; gap: 5px">
-                    <div>{{ t('利润 / 次') }}</div>
-                    <el-tooltip placement="top" effect="light">
-                      <template #content>
-                        {{ t('单次动作产生的利润。') }}
-                        <br>
-                        {{ t('#多步动作利润提示') }}
-                        <br>
-                        {{ t('#多步动作利润举例') }}
-                      </template>
-                      <el-icon>
-                        <Warning />
-                      </el-icon>
-                    </el-tooltip>
-                  </div>
-                </template>
-                <template #default="{ row }">
-                  <span :class="row.hasManualPrice ? 'manual' : ''">
-                    {{ row.result.profitPPFormat }}&nbsp;
-                  </span>
-                </template>
-              </el-table-column>
-              <el-table-column min-width="120" :label="t('经验 / h')" align="center">
-                <template #default="{ row }">
-                  <div style="display: flex; justify-content: center; align-items: center; gap: 5px">
-                    <div>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'profitPD' && ldColumnVisible.profitPD" prop="result.profitPD" sortable="custom" :sort-orders="['descending', null]" :label="t('利润 / 天')" align="center" min-width="120">
+                  <template #default="{ row }">
+                    <span :class="row.hasManualPrice ? 'manual' : ''">
                       <template v-if="isComparing && row._compareData?.length">
                         <template v-for="(cd, ci) in row._compareData" :key="ci">
-                          <span v-if="cd">
-                            <span v-if="ci > 0"> / </span>
-                            <span :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.expPHFormat }}</span>
-                          </span>
+                          <span v-if="ci > 0"> / </span>
+                          <span v-if="cd" :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.profitPDFormat }}</span>
+                          <span v-else class="color-gray-500" title="该预设的榜单未包含此物品">—</span>
                         </template>
                       </template>
-                      <span v-else>{{ row.result.expPHFormat }}</span>
-                    </div>
-                    <el-tooltip v-if="row.expList?.length > 1" placement="top" effect="light">
-                      <template #content>
-                        <div v-for="(item, i) in row.expList" :key="i" style="display: flex; gap:10px">
-                          <div>{{ t(item.action) }}</div>
-                          <div>{{ item.expPHFormat }}</div>
-                        </div>
+                      <span v-else style="word-break:break-all;display:inline-block;max-width:200px">{{ row.result.profitPDFormat }}</span>&nbsp;
+                    </span>
+                    <el-link type="primary" :icon="Edit" @click="setPrice(row)">
+                      {{ t('自定义') }}
+                    </el-link>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'profitPH' && ldColumnVisible.profitPH" prop="result.profitPH" sortable="custom" :sort-orders="['descending', null]" :label="t('利润 / h')" align="center" min-width="120">
+                  <template #default="{ row }">
+                    <template v-if="isComparing && row._compareData?.length">
+                      <template v-for="(cd, ci) in row._compareData" :key="ci">
+                        <span v-if="ci > 0"> / </span>
+                        <span v-if="cd" :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.profitPHFormat }}</span>
+                        <span v-else class="color-gray-500" title="该预设的榜单未包含此物品">—</span>
                       </template>
-                      <el-icon><Warning /></el-icon>
-                    </el-tooltip>
-                  </div>
-                </template>
-              </el-table-column>
-              <el-table-column :label="t('成交量(1h)')" align="center" min-width="120">
-                <template #default="{ row }">
-                  <span>{{ formatVolume1h(row) }}</span>
-                </template>
-              </el-table-column>
-
-              <el-table-column :label="t('详情')" align="center">
-                <template #default="{ row }">
-                  <el-link type="primary" :icon="Search" @click="showDetail(row)">
-                    {{ t('查看') }}
-                  </el-link>
-                </template>
-              </el-table-column>
-
-              <el-table-column prop="favorite" :label="t('收藏')" align="center" sortable="custom" :sort-orders="['descending', null]">
-                <template #default="{ row }">
-                  <el-link v-if="!favoriteStore.hasFavorite(row)" :underline="false" type="warning" :icon="Star" @click="addFavorite(row)" style="font-size:24px" />
-                  <el-link v-else :underline="false" :icon="StarFilled" type="warning" @click="deleteFavorite(row)" style="font-size:28px" />
-                </template>
-              </el-table-column>
+                    </template><span v-else style="word-break:break-all;display:inline-block;max-width:180px">{{ row.result.profitPHFormat }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'profitRate' && ldColumnVisible.profitRate" prop="result.profitRate" :label="t('利润率')" min-width="120" align="center" sortable="custom" :sort-orders="['descending', null]">
+                  <template #default="{ row }">
+                    <template v-if="isComparing && row._compareData?.length">
+                      <template v-for="(cd, ci) in row._compareData" :key="ci">
+                        <span v-if="ci > 0"> / </span>
+                        <span v-if="cd" :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.profitRateFormat }}</span>
+                        <span v-else class="color-gray-500" title="该预设的榜单未包含此物品">—</span>
+                      </template>
+                    </template>
+                    <span v-else>{{ row.result.profitRateFormat }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'profitPP' && ldColumnVisible.profitPP" prop="result.profitPP" sortable="custom" :sort-orders="['descending', null]" align="center" min-width="120">
+                  <template #header>
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 5px">
+                      <div>{{ t('利润 / 次') }}</div>
+                      <el-tooltip placement="top" effect="light">
+                        <template #content>
+                          {{ t('单次动作产生的利润。') }}
+                          <br>
+                          {{ t('#多步动作利润提示') }}
+                          <br>
+                          {{ t('#多步动作利润举例') }}
+                        </template>
+                        <el-icon>
+                          <Warning />
+                        </el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                  <template #default="{ row }">
+                    <span :class="row.hasManualPrice ? 'manual' : ''">
+                      {{ row.result.profitPPFormat }}&nbsp;
+                    </span>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'expPH' && ldColumnVisible.expPH" prop="result.expPH" sortable="custom" :sort-orders="['descending', null]" min-width="120" :label="t('经验 / h')" align="center">
+                  <template #default="{ row }">
+                    <div style="display: flex; justify-content: center; align-items: center; gap: 5px">
+                      <div>
+                        <template v-if="isComparing && row._compareData?.length">
+                          <template v-for="(cd, ci) in row._compareData" :key="ci">
+                            <span v-if="ci > 0"> / </span>
+                            <span v-if="cd" :style="{ color: ['#409eff', '#e6a23c', '#16ab1b', '#f56c6c', '#909399'][ci % 5] }">{{ cd.result.expPHFormat }}</span>
+                            <span v-else class="color-gray-500" title="该预设的榜单未包含此物品">—</span>
+                          </template>
+                        </template>
+                        <span v-else>{{ row.result.expPHFormat }}</span>
+                      </div>
+                      <el-tooltip v-if="row.expList?.length > 1" placement="top" effect="light">
+                        <template #content>
+                          <div v-for="(item, i) in row.expList" :key="i" style="display: flex; gap:10px">
+                            <div>{{ t(item.action) }}</div>
+                            <div>{{ item.expPHFormat }}</div>
+                          </div>
+                        </template>
+                        <el-icon><Warning /></el-icon>
+                      </el-tooltip>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'vol' && ldColumnVisible.vol" :label="t('成交量(1h)')" align="center" min-width="120">
+                  <template #default="{ row }">
+                    <span>{{ formatVolume1h(row) }}</span>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'detail' && ldColumnVisible.detail" :label="t('详情')" align="center">
+                  <template #default="{ row }">
+                    <el-link type="primary" :icon="Search" @click="showDetail(row)">
+                      {{ t('查看') }}
+                    </el-link>
+                  </template>
+                </el-table-column>
+                <el-table-column v-if="colKey === 'favorite' && ldColumnVisible.favorite" prop="favorite" :label="t('收藏')" align="center" sortable="custom" :sort-orders="['descending', null]">
+                  <template #default="{ row }">
+                    <el-link v-if="!favoriteStore.hasFavorite(row)" :underline="false" type="warning" :icon="Star" @click="addFavorite(row)" style="font-size:24px" />
+                    <el-link v-else :underline="false" :icon="StarFilled" type="warning" @click="deleteFavorite(row)" style="font-size:28px" />
+                  </template>
+                </el-table-column>
+              </template>
             </el-table>
           </template>
           <template #footer>
